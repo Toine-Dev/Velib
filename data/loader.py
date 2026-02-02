@@ -6,10 +6,10 @@ CSV_PATH = "comptage_velo_donnees_compteurs.csv"
 
 @st.cache_data
 def load_raw_data(csv_path=CSV_PATH):
-    if not csv_path.exists():
-        raise FileNotFoundError(
-            "Raw dataset not found. Run scripts/update_data.py first."
-        )
+    # if not csv_path.exists():
+    #     raise FileNotFoundError(
+    #         "Raw dataset not found. Run scripts/update_data.py first."
+    #     )
     df = pd.read_csv(csv_path, sep=";")
     df.columns = [col.strip().replace(" ", "_").lower() for col in df.columns]
     return df
