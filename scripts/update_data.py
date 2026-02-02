@@ -7,10 +7,11 @@ import sys
 # Add project root to path otherwise imports below fail when running this script directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.metadata import get_date_range
-from data.ingestion import fetch_velib_data
+from data.metadata import init_metadata_if_missing, save_metadata
+from data.ingestion import fetch_velib_data, fetch_weather_data
 
-RAW_DATA_PATH = Path("./comptage_velo_donnees_compteurs.csv")
+RAW_VELIB_PATH = Path("./comptage_velo_donnees_compteurs.csv")
+WEATHER_PATH = Path("./weather_data.csv")
 
 def append_to_csv(df_new: pd.DataFrame, path: Path) -> None:
     """Append new data to CSV, creating file if needed."""
@@ -18,62 +19,135 @@ def append_to_csv(df_new: pd.DataFrame, path: Path) -> None:
     df_new.to_csv(path, mode="a", header=header, index=False) # DataFrame index will not be written to file (index=False)
 
 
-def main():
-    _, last_date = get_date_range()
+def update_data():
+    # _, last_date = get_date_range()
 
-    # today = datetime.utcnow().date()
-    # today = datetime.now(timezone.utc).date()
+    # --------------------------------------------------
+    # 1. Load or initialize metadata (cheap)
+    # --------------------------------------------------
+    state = init_metadata_if_missing()
+    # last_date = state["velib"]["max_date"]
+    velib_min = state["velib"]["min_date"]
+    velib_max = state["velib"]["max_date"]
 
-    # yesterday = (today - timedelta(days=1)).strftime("%Y/%m/%d")
-
-    # if last_date is not None:
-    #     if last_date >= yesterday:
-    #         print("✅ Data already up to date. No ingestion needed.")
-    #         return
-
-    #     start_date = (
-    #         datetime.strptime(last_date, "%Y/%m/%d").date()
-    #         + timedelta(days=1)
-    #     ).strftime("%Y/%m/%d")
-    # else:
-    #     # First run: choose a sensible historical start
-    #     start_date = "2024/01/01"
+    if velib_min is None or velib_max is None:
+        print("Error: velib min_date or max_date in dataset_state.json is None. Please make sure raw Velib CSV dataset exists and is functional and try again.")
+        return
 
     today = datetime.now(ZoneInfo("Europe/Paris")).date() # Respects daylight saving automatically (matches the semantics of raw dataset which is in Paris local time)
     print(datetime.now(ZoneInfo("Europe/Paris"))) # Debugging line
     print(f"Today's date (Paris time): {today}")  # Debugging line
     yesterday = today - timedelta(days=1)
-    print(f"Yesterday's date (Paris time): {yesterday}")  # Debugging line
 
-    if last_date is not None:
-        last_date_dt = datetime.strptime(last_date, "%Y/%m/%d").date() # Convert last_date string to date object to compare with yesterday date object
-        print(f"Last date in dataset: {last_date_dt}, Yesterday: {yesterday}")  # Debugging line
-        if last_date_dt >= yesterday:
-            print("✅ Data already up to date. No ingestion needed.")
-            return
 
-        start_date = (last_date_dt + timedelta(days=1)).strftime("%Y/%m/%d")
+    # --------------------------------------------------
+    # 2. Velib ingestion (primary timeline)
+    # --------------------------------------------------
+
+    velib_max_dt = datetime.strptime(velib_max, "%Y/%m/%d").date() # Convert velib_max string to date object to compare with yesterday date object
+
+    # if velib_max is None:
+    #     # First run/ingestion or missing/corrupted dataset → fetch last 12 months
+    #     velib_start = (today - timedelta(days=365)).strftime("%Y/%m/%d")
+    # else:
+    #     # velib_start = velib_max
+    #     velib_start = (velib_max_dt + timedelta(days=1)).strftime("%Y/%m/%d")
+
+    velib_start = (velib_max_dt + timedelta(days=1)).strftime("%Y/%m/%d")
+
+    # if velib_max is None or velib_max_dt < yesterday:
+    if velib_max_dt < yesterday:
+        print("📥 Fetching new Velib data...")
+        new_velib_df = fetch_velib_data(
+            start_date=velib_start,
+            end_date=yesterday.strftime("%Y/%m/%d"),
+        )
+
+        if not new_velib_df.empty:
+            print(f"Yesterday's date (Paris time): {yesterday}")
+            print("Updating up to yesterday's date inclusive.")  # Debugging line
+############################# DO NOT FORGET TO UNCOMMENT BELOW #############################
+            # append_to_csv(new_velib_df, RAW_VELIB_PATH)
+############################# DO NOT FORGET TO UNCOMMENT BELOW #############################
+            state["velib"]["max_date"] = yesterday.strftime("%Y/%m/%d")
+            # if state["velib"]["min_date"] is None:
+            #     state["velib"]["min_date"] = velib_start
+        save_metadata(state)
+        print("✅ Velib data ingestion complete.")
+        print(f"✅ Added {len(new_velib_df)} new rows.")
+        print(f"✅ new_velib_df['date_et_heure_de_comptage']:\n{new_velib_df['date_et_heure_de_comptage']}")
+        print(f"Dates ranging from {new_velib_df['date_et_heure_de_comptage'].min()} to {new_velib_df['date_et_heure_de_comptage'].max()}")
+
+    # --------------------------------------------------
+    # 3. Weather ingestion (depends on Velib)
+    # --------------------------------------------------
+    # Reassign state to ensure we have the latest velib_min and velib_max after Velib ingestion above as this may have changed Velib metadata
+    state = init_metadata_if_missing()
+    velib_min = state["velib"]["min_date"]
+    velib_max = state["velib"]["max_date"]
+
+    # weather_min = state["weather"]["min_date"]
+    weather_max = state["weather"]["max_date"]
+
+    # Case A: weather file does not exist yet
+    if not WEATHER_PATH.exists():
+        print("🌦️ Weather file missing — bootstrapping from Velib range")
+        weather_start = velib_min
+        weather_end = velib_max
+        weather_max = velib_min
+
+    # Case B: weather exists but is behind Velib
+    weather_max_dt = datetime.strptime(weather_max, "%Y/%m/%d").date()
+    velib_max_dt = datetime.strptime(velib_max, "%Y/%m/%d").date()
+
+    # elif weather_max < velib_max:
+    if weather_max_dt < velib_max_dt:
+        print("🌦️ Fetching missing weather data...")
+        weather_start = weather_max
+        # weather_start = (weather_max_dt + timedelta(days=1)).strftime("%Y/%m/%d")
+        weather_end = velib_max
 
     else:
-        # First run or missing/corrupted dataset → fetch last 12 months
-        start_date = (today - timedelta(days=365)).strftime("%Y/%m/%d")
-
-    end_date = yesterday.strftime("%Y/%m/%d")
-
-    print(f"📥 Fetching Velib data from {start_date} to {end_date}")
-
-    df_new = fetch_velib_data(start_date=start_date, end_date=end_date)
-
-    if df_new.empty:
-        print("⚠️ API returned no new records.")
+        print("✅ Weather data already up to date")
+        save_metadata(state)
         return
 
-    append_to_csv(df_new, RAW_DATA_PATH)
+    # Fetch & append weather
+    # weather_df = fetch_weather_data(
+    #     start_date=weather_start,
+    #     end_date=weather_end,
+    # )
+    
+    
+     # weather_end_dt = datetime.strptime(weather_end, "%Y/%m/%d").date()
+    if weather_start != velib_min:
+        weather_start = (weather_max_dt + timedelta(days=1)).strftime("%Y/%m/%d")
+    # weather_end = (weather_end_dt + timedelta(days=1)).strftime("%Y/%m/%d")
 
-    print(f"✅ Added {len(df_new)} new rows.")
+    # Weather API expect "YYYY-MM-DD" format and not "YYYY/MM/DD"
+    weather_start_formatted = datetime.strptime(weather_start, "%Y/%m/%d").strftime("%Y-%m-%d")
+    weather_end_formatted = datetime.strptime(weather_end, "%Y/%m/%d").strftime("%Y-%m-%d")
 
+    print(f"Fetching weather data from {weather_start} to {weather_end}")
+    weather_df = fetch_weather_data(
+        start_date=weather_start_formatted,
+        end_date=weather_end_formatted,
+    )
+
+    if not weather_df.empty:
+        append_to_csv(weather_df, WEATHER_PATH)
+        # state["weather"]["min_date"] = weather_start
+        state["weather"]["min_date"] = velib_min
+        state["weather"]["max_date"] = weather_end
+
+    # --------------------------------------------------
+    # 4. Persist metadata once
+    # --------------------------------------------------
+    save_metadata(state)
+    print("✅ Dataset successfully updated")
 
 if __name__ == "__main__":
-    main()
+    update_data()
 
 # yesterday (31/01/2026) API returned no data for that same date (and onwards) but did for previous dates (30/01/2026 and before)
+

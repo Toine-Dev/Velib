@@ -3,5 +3,6 @@
 *.csv
 *.log
 *.venv/
+metadata/
 __pycache__/
 assets/

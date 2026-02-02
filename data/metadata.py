@@ -39,10 +39,11 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict
 import json
 import pandas as pd
+import shutil
 
 # Paths
 RAW_VELIB_PATH = Path("./comptage_velo_donnees_compteurs.csv")
-WEATHER_PATH = Path("./weather.parquet")
+WEATHER_PATH = Path("./weather_data.csv")
 METADATA_PATH = Path("metadata/dataset_state.json")
 
 
@@ -51,6 +52,16 @@ METADATA_PATH = Path("metadata/dataset_state.json")
 # ---------------------------------------------------------------------
 
 def load_metadata() -> Optional[Dict]:
+    if not RAW_VELIB_PATH.exists():
+        # Delete metadata folder if it exists
+        metadata_folder = METADATA_PATH.parent
+        if metadata_folder.exists():
+            shutil.rmtree(metadata_folder)
+        # Delete weather_data.csv if it exists
+        if WEATHER_PATH.exists():
+            WEATHER_PATH.unlink()
+        raise FileNotFoundError(f"Raw Velib data not found at {RAW_VELIB_PATH}")
+    
     if not METADATA_PATH.exists():
         return None
 
@@ -91,7 +102,7 @@ def _get_weather_date_range(path: Path) -> Tuple[Optional[str], Optional[str]]:
     if not path.exists():
         return None, None
 
-    df = pd.read_parquet(path, columns=["time"])
+    df = pd.read_csv(path, usecols=["time"])
     dates = pd.to_datetime(df["time"])
 
     return (
@@ -112,7 +123,7 @@ def init_metadata_if_missing() -> Dict:
     state = load_metadata()
     if state is not None:
         return state
-
+    
     velib_min, velib_max = _get_velib_date_range_from_csv(RAW_VELIB_PATH)
     weather_min, weather_max = _get_weather_date_range(WEATHER_PATH)
 
@@ -129,6 +140,7 @@ def init_metadata_if_missing() -> Dict:
 
     save_metadata(state)
     return state
+
 
 
 def update_velib_dates(state: Dict, new_max_date: str) -> None:

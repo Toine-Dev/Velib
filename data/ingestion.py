@@ -243,7 +243,8 @@ def fetch_weather_data(
     response = requests.get(WEATHER_URL, params=params, timeout=10)
 
     if response.status_code != 200:
-        raise RuntimeError(f"Weather API error {response.status_code}")
+        # include response.text to see API error message/details
+        raise RuntimeError(f"Weather API error {response.status_code}: {response.text}")
 
     print("Weather data retrieved successfully.")
 
@@ -260,7 +261,7 @@ def fetch_weather_data(
 
 
 # print(fetch_velib_data("2026/01/30", "2026/01/30")) # Works
-print(fetch_velib_data("2026/01/30")) # Works
+# print(fetch_velib_data("2026/01/30")) # Works
 # print(fetch_velib_data("2026/01/30").columns) # Works
 # print(fetch_weather_data("2026-01-29", "2026-01-30"))  # Works
 # print(fetch_weather_data("2026-01-29")["time"])  # Works
