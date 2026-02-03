@@ -69,20 +69,24 @@ def update_data():
 ############################# DO NOT FORGET TO UNCOMMENT BELOW #############################
             # append_to_csv(new_velib_df, RAW_VELIB_PATH)
 ############################# DO NOT FORGET TO UNCOMMENT BELOW #############################
-            state["velib"]["max_date"] = yesterday.strftime("%Y/%m/%d")
+            new_velib_df['date_et_heure_de_comptage'] = pd.to_datetime(new_velib_df['date_et_heure_de_comptage'])
+            state["velib"]["max_date"] = new_velib_df["date_et_heure_de_comptage"].max().strftime("%Y/%m/%d")
             # if state["velib"]["min_date"] is None:
             #     state["velib"]["min_date"] = velib_start
-        save_metadata(state)
-        print("✅ Velib data ingestion complete.")
-        print(f"✅ Added {len(new_velib_df)} new rows.")
-        print(f"✅ new_velib_df['date_et_heure_de_comptage']:\n{new_velib_df['date_et_heure_de_comptage']}")
-        print(f"Dates ranging from {new_velib_df['date_et_heure_de_comptage'].min()} to {new_velib_df['date_et_heure_de_comptage'].max()}")
+            save_metadata(state)
+            print("✅ Velib data ingestion complete.")
+            print(f"✅ Added {len(new_velib_df)} new rows.")
+            print(f"✅ new_velib_df['date_et_heure_de_comptage']:\n{new_velib_df['date_et_heure_de_comptage']}")
+            print(f"Dates ranging from {new_velib_df['date_et_heure_de_comptage'].min()} to {new_velib_df['date_et_heure_de_comptage'].max()}")
+        else:
+            print("✅ Velib data ingestion complete.")
+            print(f"✅ No new data to add (data already up-to-date).")
 
     # --------------------------------------------------
     # 3. Weather ingestion (depends on Velib)
     # --------------------------------------------------
     # Reassign state to ensure we have the latest velib_min and velib_max after Velib ingestion above as this may have changed Velib metadata
-    state = init_metadata_if_missing()
+    state = init_metadata_if_missing() # Not useful I think, I have to check the logic here again
     velib_min = state["velib"]["min_date"]
     velib_max = state["velib"]["max_date"]
 
