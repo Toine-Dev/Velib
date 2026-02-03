@@ -17,7 +17,7 @@ from scipy.stats import pearsonr, ttest_ind, f_oneway, chi2_contingency
 import seaborn as sns
 import json
 
-from data.loader import load_raw_data, load_processed_data
+from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
 
 # ------------------------------ PATHS ------------------------------
 # CSV_PATH = "comptage_velo_donnees_compteurs.csv"
@@ -106,9 +106,10 @@ def ensure_png_seasons(df, path=os.path.join(PLOT_DIR, "seasons.png")):
 #     return processed_df, feature_names
 
 # -----------------------------------------------------LOAD DATA--------------------------------------------------------------------
-raw_df = load_raw_data()
-processed_df, feature_names = load_processed_data(raw_df)
+raw_velib_df = load_raw_velib_data()
+raw_weather_df = load_raw_weather_data()
 
+processed_df, feature_names = load_processed_data(raw_velib_df, raw_weather_df)
 #------------------------------------------------------- SIDE BAR-------------------------------------------------------------------
 with st.sidebar:
     page = st.radio(
@@ -160,5 +161,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.dataframe(raw_df.head())
-st.write(raw_df.columns)
+st.dataframe(raw_velib_df.head())
+st.dataframe(raw_weather_df.head())
+st.dataframe(processed_df.head())
+st.write(processed_df.columns)
