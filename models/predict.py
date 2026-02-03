@@ -1,12 +1,8 @@
 import argparse
 import os
 import pandas as pd
-
-from pathlib import Path
-import sys
-# Ensure project root is on sys.path when running as a script so imports like `utils.my_utils` work
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.my_utils import preprocess_data, load_model
+from utils.config import load_model
+from loader import
 
 
 def main():

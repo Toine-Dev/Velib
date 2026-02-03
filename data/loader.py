@@ -5,17 +5,6 @@ import pandas as pd
 VELIB_PATH = "comptage_velo_donnees_compteurs.csv"
 WEATHER_PATH = "weather_data.csv"
 
-# @st.cache_data
-# def load_raw_data(velib_path=VELIB_PATH, weather_path=WEATHER_PATH):
-#     # if not csv_path.exists():
-#     #     raise FileNotFoundError(
-#     #         "Raw dataset not found. Run scripts/update_data.py first."
-#     #     )
-#     df_velib = pd.read_csv(velib_path, sep=";")
-#     df_velib.columns = [col.strip().replace(" ", "_").lower() for col in df_velib.columns]
-#     df_weather = pd.read_csv(weather_path)
-#     df_merged = pd.merge(df_velib, df_weather, how="left", left_on="date_et_heure_de_comptage", right_on="time").drop(columns=["time"])
-#     return df_merged
 
 @st.cache_data
 def load_raw_velib_data(velib_path=VELIB_PATH):
@@ -34,8 +23,6 @@ def load_processed_data(raw_velib_df, raw_weather_df):
     processed_weather_data = preprocess_weather_data(raw_weather_df)
     df_merged = pd.merge(processed_velib_data, processed_weather_data, how="left", left_on="date_et_heure_de_comptage", right_on="time").drop(columns=["time"])
     processed_df, feature_names = preprocess_merged_data(df_merged)
-    # return processed_velib_data
-    # processed_df, feature_names = preprocess_data(raw_df)
     return processed_df, feature_names
 
 

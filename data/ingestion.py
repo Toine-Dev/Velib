@@ -4,60 +4,6 @@ import pandas as pd
 from typing import List, Dict, Optional
 
 
-# VELIB_URL = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records"
-# "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records?where=date%3E%3Ddate%272026%2F01%2F29%27"
-
-# def fetch_velib_data(limit: int = 100, sleep: float = 0.2) -> pd.DataFrame:
-#     """
-#     Fetch all Velib records using pagination.
-
-#     Parameters
-#     ----------
-#     limit : int
-#         Number of records per API call (max allowed by API).
-#     sleep : float
-#         Delay between calls to avoid hammering the API.
-
-#     Returns
-#     -------
-#     pd.DataFrame
-#         DataFrame containing all fetched records.
-#     """
-#     offset = 0
-#     all_records: List[Dict] = []
-
-#     while True:
-#         params = {
-#             "limit": limit,
-#             "offset": offset,
-#         }
-
-#         response = requests.get(VELIB_URL, params=params, timeout=10)
-
-#         if response.status_code != 200:
-#             raise RuntimeError(f"Velib API error {response.status_code}")
-
-#         data = response.json()
-#         results = data.get("results", [])
-#         total_count = data.get("total_count", 0)
-
-#         print(f"Fetched {offset}/{total_count} records")
-
-#         if not results:
-#             break  # safety exit
-
-#         all_records.extend(results)
-#         offset += len(results)
-
-#         if offset >= total_count:
-#             break
-
-#         time.sleep(sleep)
-
-#     df = pd.DataFrame(all_records)
-#     return df
-
-
 VELIB_URL = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records"
 
 col_map = {
@@ -151,58 +97,6 @@ def fetch_velib_data(
     return df
 
 
-# def fetch_weather_data(
-#     start_date: str,
-#     end_date: str,
-#     latitude: float = 48.8575,
-#     longitude: float = 2.3514,
-# ) -> pd.DataFrame:
-#     """
-#     Fetch historical weather data from Open-Meteo.
-
-#     Parameters
-#     ----------
-#     start_date : str
-#         Start date (YYYY-MM-DD)
-#     end_date : str
-#         End date (YYYY-MM-DD)
-#     latitude : float
-#     longitude : float
-
-#     Returns
-#     -------
-#     pd.DataFrame
-#         Weather dataframe indexed by timestamp
-#     """
-#     "https://archive-api.open-meteo.com/v1/archive?latitude=48.8575&longitude=2.3514&start_date={start_date}&end_date={end_date}&hourly=rain,snowfall,apparent_temperature,wind_speed_10m"
-#     url = (
-#         "https://archive-api.open-meteo.com/v1/archive"
-#         f"?latitude={latitude}"
-#         f"&longitude={longitude}"
-#         f"&start_date={start_date}"
-#         f"&end_date={end_date}"
-#         "&hourly=rain,snowfall,apparent_temperature,wind_speed_10m"
-#     )
-
-#     response = requests.get(url, timeout=10)
-
-#     if response.status_code != 200:
-#         raise RuntimeError(f"Weather API error {response.status_code}")
-
-#     print("Weather data retrieved successfully.")
-
-#     data = response.json()
-#     records = data.get("hourly", {})
-
-#     df_weather = pd.DataFrame(records)
-
-#     # Clean timestamp
-#     df_weather["time"] = pd.to_datetime(df_weather["time"], utc=True)
-#     df_weather["time"] = df_weather["time"].dt.tz_convert(None)
-
-#     return df_weather
-
-
 WEATHER_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 def fetch_weather_data(
@@ -265,14 +159,3 @@ def fetch_weather_data(
 # print(fetch_velib_data("2026/01/30").columns) # Works
 # print(fetch_weather_data("2026-01-29", "2026-01-30"))  # Works
 # print(fetch_weather_data("2026-01-29")["time"])  # Works
-
-
-
-
-
-
-
-
-
-
-
