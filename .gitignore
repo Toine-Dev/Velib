@@ -6,3 +6,4 @@
 metadata/
 __pycache__/
 assets/
+*.pkl
