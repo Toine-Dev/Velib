@@ -108,6 +108,12 @@ def ensure_png_seasons(df, path=os.path.join(PLOT_DIR, "seasons.png")):
 # -----------------------------------------------------LOAD DATA--------------------------------------------------------------------
 raw_velib_df = load_raw_velib_data()
 raw_weather_df = load_raw_weather_data()
+from pages.overview import show_overview
+from pages.analysis import show_analysis
+from pages.prediction import show_prediction
+
+# ------------------------------ PATHS ------------------------------
+# CSV_PATH = "comptage_velo_donnees_compteurs.csv"
 
 processed_df, feature_names = load_processed_data(raw_velib_df, raw_weather_df)
 #------------------------------------------------------- SIDE BAR-------------------------------------------------------------------
@@ -117,8 +123,7 @@ with st.sidebar:
         [
             "Overview",
             "Data Analysis",
-            "Model & Predictions",
-            "Modèle Sarimax"
+            "Model & Predictions"
         ],
         index=0
     )
@@ -165,3 +170,14 @@ st.dataframe(raw_velib_df.head())
 st.dataframe(raw_weather_df.head())
 st.dataframe(processed_df.head())
 st.write(processed_df.columns)
+if page == "Overview":
+    show_overview()
+
+elif page == "Data Analysis":
+    show_analysis()
+
+elif page == "Model & Predictions":
+    show_prediction()
+
+# st.dataframe(raw_df.head())
+# st.write(raw_df.columns)
