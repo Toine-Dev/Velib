@@ -6,7 +6,7 @@ from data.loader import load_raw_data, load_processed_data
 #-------------------------------------------------------PAGE OVERVIEW-------------------------------------------------------------------
 def show_overview():
     raw_df = load_raw_data()
-    processed_df = load_processed_data()
+    processed_df, feature_names = load_processed_data(raw_df)
 
     st.title("Analyse de l'affluence des vélos à Paris")
 

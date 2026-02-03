@@ -30,7 +30,7 @@ def show_prediction():
     st.title("Model Training & Predictions")
 
     raw_df = load_raw_data()
-    processed_df, feature_names = load_processed_data()
+    processed_df, feature_names = load_processed_data(raw_df)
 
     pipeline = None
     metrics = None

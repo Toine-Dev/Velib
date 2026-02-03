@@ -1,5 +1,5 @@
 import streamlit as st
-from data.loader import load_processed_data
+from data.loader import load_raw_data, load_processed_data
 import os
 import matplotlib as plt
 import seaborn as sns
@@ -82,7 +82,8 @@ def ensure_png_seasons(df, path=os.path.join(PLOT_DIR, "seasons.png")):
 
 #-------------------------------------------------------PAGE DATA ANALYSIS-------------------------------------------------------------------
 def show_analysis():
-    processed_df = load_processed_data()
+    raw_df = load_raw_data()
+    processed_df = load_processed_data(raw_df)
 
     st.title("Data Analysis : Étude statistique et visualisation du trafic cycliste")
     
