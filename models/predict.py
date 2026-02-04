@@ -14,22 +14,35 @@ def predict_model():
     raw_df_weather = load_raw_weather_data()
     processed_df, feature_names = load_processed_data(raw_df_velib, raw_df_weather)
 
+    start_time = pd.to_datetime(raw_df_velib['date_et_heure_de_comptage'].max())
+    
     st.header("Prédiction pour une date future")
 
+    min_date = start_time.date()
+    st.write(f"Veuillez choisir une date/heure STRICTEMENT après {start_time}")
     col1, col2 = st.columns(2)
-    pred_date = col1.date_input("Sélectionnez la date")
+
+    pred_date = col1.date_input("Sélectionnez la date", min_value=min_date)
     pred_time = col2.time_input("Sélectionnez l'heure")
+    pred_datetime = pd.Timestamp.combine(pred_date, pred_time)
+    pred_datetime = pred_datetime.tz_localize(start_time.tz)
+
+    if pred_datetime <= start_time:
+        st.error(f"Veuillez choisir une date/heure STRICTEMENT après {start_time}")
+        st.stop()
 
     radius = st.slider("Rayon de la heatmap", min_value=10, max_value=50, value=30)
 
     if st.button("Prédire la heatmap"):
         pred_time = pred_time.replace(minute=0, second=0, microsecond=0)
         datetime_pred = pd.Timestamp.combine(pred_date, pred_time)
+        #st.write(datetime_pred, datetime_pred.tzinfo) -> pas de fuseau horaire, bonne date + heure
 
         # -------------------------
         # 1) Préparer les heures futures
         # -------------------------
-        future_hours = pd.date_range(start=datetime_pred, periods=24, freq='H')
+        # future_hours = pd.date_range(start=datetime_pred, periods=24, freq='H')
+        future_hours = pd.date_range(start=start_time, periods=24, freq='H')
         hours_df = pd.DataFrame({'date_et_heure_de_comptage': future_hours})
         hours_df['jour'] = hours_df['date_et_heure_de_comptage'].dt.weekday
         hours_df['saison'] = hours_df['date_et_heure_de_comptage'].apply(get_season_from_date)
@@ -40,6 +53,7 @@ def predict_model():
         hours_df['vacances'] = hours_df['date_et_heure_de_comptage'].apply(is_vacances)
         hours_df['heure_de_pointe'] = hours_df['date_et_heure_de_comptage'].apply(is_rush_hour)
 
+        st.write(hours_df['date_et_heure_de_comptage'].iloc[0], hours_df['date_et_heure_de_comptage'].iloc[0].tz)
         # -------------------------
         # 2) Récupérer les données météo
         # -------------------------
@@ -48,11 +62,16 @@ def predict_model():
             (future_hours.max() + timedelta(days=1)).strftime("%Y-%m-%d")
         )
 
+        st.write(df_weather['time'].iloc[0], df_weather['time'].iloc[0].tz)
+
         # Convertir en datetime et ajuster fuseau horaire Paris
         df_weather['time'] = pd.to_datetime(df_weather['time']).dt.tz_localize('UTC').dt.tz_convert('Europe/Paris').dt.floor('H')
+
+        st.write(df_weather['time'].iloc[-1], df_weather['time'].iloc[-1].tz)
+
         #VERIFIER SUBTILITE FUSEAU HORAIRE
         hours_df['date_et_heure_de_comptage'] = pd.to_datetime(hours_df['date_et_heure_de_comptage']).dt.tz_localize('UTC').dt.tz_convert('Europe/Paris').dt.floor('H')
-
+        st.write(hours_df['date_et_heure_de_comptage'].iloc[0], hours_df['date_et_heure_de_comptage'].iloc[0].tz)
         # Merge sécurisé
         df_merged = pd.merge(hours_df, df_weather, how="left",
                             left_on="date_et_heure_de_comptage",
@@ -63,6 +82,8 @@ def predict_model():
         df_merged['neige'] = (df_merged['snowfall'].fillna(0) > 0).astype(int)
         df_merged['vent'] = (df_merged['wind_speed_10m'].fillna(0) > 15).astype(int)
         df_merged['apparent_temperature'] = df_merged['apparent_temperature'].fillna(df_merged['apparent_temperature'].mean())
+
+        st.dataframe(df_merged)
 
         # -------------------------
         # 3) Encodage cyclique (si nécessaire)
@@ -126,7 +147,7 @@ def predict_model():
 
                 # Construire X_row avec les mêmes feature_names utilisés au training
                 X_row = pd.DataFrame([row_for_pred[feature_names]])
-                st.dataframe(X_row.head())
+
     #             # prédiction via pipeline (préprocesseur + modèle)
     #             try:
     #                 pred = float(pipeline.predict(X_row)[0])

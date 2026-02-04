@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import pearsonr, ttest_ind, chi2_contingency
 import pandas as pd
+from data.preprocessing import *
 
 PLOT_DIR = "assets/plots"
 os.makedirs(PLOT_DIR, exist_ok=True)
@@ -32,7 +33,6 @@ def ensure_png_weather(df, path=os.path.join(PLOT_DIR, "weather_effects.png")):
         return path
     df['pluie'] = df['pluie'] > 0
     df['neige'] = df['neige'] > 0
-    df['vent'] = df['vent'] > 15
     fig, axes = plt.subplots(2,2, figsize=(14,10))
     axes = axes.flatten()
     sns.barplot(x='pluie', y='comptage_horaire', data=df, ax=axes[0])
@@ -66,13 +66,13 @@ def ensure_png_seasons(df, path=os.path.join(PLOT_DIR, "seasons.png")):
         return path
     fig, axes = plt.subplots(2,2, figsize=(14,10))
     axes = axes.flatten()
-    sns.barplot(x='saison', y='comptage_horaire', order=['winter','spring','summer','autumn'], data=df, ax=axes[0])
+    sns.barplot(x=df['date_et_heure_de_comptage'].apply(get_season_from_date), y='comptage_horaire', order=['winter','spring','summer','autumn'], data=df, ax=axes[0])
     axes[0].set_title("Saisons")
     sns.barplot(x=df['date_et_heure_de_comptage'].dt.month, y='comptage_horaire', data=df, ax=axes[1])
     axes[1].set_title("Mois")
-    sns.barplot(x='vacances', y='comptage_horaire', data=df, ax=axes[2])
+    sns.barplot(x=df['vacances'], y='comptage_horaire', data=df, ax=axes[2])
     axes[2].set_title("Vacances")
-    sns.barplot(x='heure_de_pointe', y='comptage_horaire', data=df, ax=axes[3])
+    sns.barplot(x=df['heure_de_pointe'], y='comptage_horaire', data=df, ax=axes[3])
     axes[3].set_title("Heures de pointe")
     plt.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches='tight')
