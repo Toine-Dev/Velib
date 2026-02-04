@@ -1,95 +1,68 @@
-import argparse
 import json
 import os
 import pandas as pd
+from utils.config import load_model, make_preprocessor, train_final_model, save_model
+from data.loader import load_processed_data, load_raw_velib_data, load_raw_weather_data
+import streamlit as st
+import matplotlib.pyplot as plt
 
-from pathlib import Path
-import sys
-# Ensure project root is on sys.path when running as a script so imports like `utils.my_utils` work
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.my_utils import preprocess_data, train_final_model, save_model
+def train_model():
+    pipeline = None
+    metrics = None
 
+    raw_df_velib = load_raw_velib_data()
+    raw_df_weather = load_raw_weather_data()
+    processed_df, feature_names = load_processed_data(raw_df_velib, raw_df_weather)
 
-REQUIRED_COLUMNS = {
-    "date_et_heure_de_comptage",
-    "comptage_horaire",
-    "identifiant_du_site_de_comptage",
-    "coordonnées_géographiques",
-    "date_d'installation_du_site_de_comptage",
-    "identifiant_technique_compteur",
-    "mois_annee_comptage",
-    "identifiant_du_compteur",
-    "nom_du_site_de_comptage",
-    "nom_du_compteur",
-    "lien_vers_photo_du_site_de_comptage",
-    "id_photos",
-    "test_lien_vers_photos_du_site_de_comptage_",
-    "id_photo_1",
-    "url_sites",
-    "type_dimage",
-}
+    # Vérifier si le modèle existe
+    if os.path.exists("model.pkl"):
+        pipeline = load_model()
+        model = pipeline.named_steps['model']
+        if os.path.exists("metrics.json"):
+            with open("metrics.json", "r") as f:
+                metrics = json.load(f)
+    else:
+        st.info("Aucun modèle trouvé. Entraînement en cours...")
+        with st.spinner("Training model..."):
+            target_cols = ['identifiant_du_site_de_comptage']
+            numeric_cols = [col for col in feature_names if col not in target_cols]
+            # Préprocesseur
+            preprocessor = make_preprocessor(target_cols, numeric_cols)
 
+            model_params = {
+                "n_estimators" : 500, 
+                "learning_rate" : 0.05,
+                "max_depth" : -1,
+                "random_state" : 42
+            }
 
-def validate_schema(df: pd.DataFrame):
-    missing = sorted(list(REQUIRED_COLUMNS - set(df.columns)))
-    if missing:
-        raise ValueError(
-            "Input CSV is missing required columns:\n" + "\n".join(missing)
-        )
+            pipeline, metrics = train_final_model(processed_df[feature_names], processed_df[['comptage_horaire']], model_params, target_cols, numeric_cols, test_size_ratio=0.1)
+            save_model(pipeline)
 
+            with open("metrics.json", "w") as f:
+                json.dump(metrics, f)
+            st.success("Modèle entraîné et sauvegardé dans model.pkl")
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=True, help="Path to raw training CSV")
-    parser.add_argument("--model-out", default="artifacts/model.pkl", help="Where to save trained model")
-    parser.add_argument("--metrics-out", default="artifacts/metrics.json", help="Where to save metrics json")
-    parser.add_argument("--test-ratio", type=float, default=0.10, help="Chronological test split ratio")
-    args = parser.parse_args()
+    # Afficher les métriques
+    if metrics:
+        st.write("Validation Metrics:")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("MAE", f"{metrics['MAE']:.4f}")
+        col2.metric("RMSE", f"{metrics['RMSE']:.4f}")
+        col3.metric("R²", f"{metrics['R2']:.4f}")
 
-    os.makedirs(os.path.dirname(args.model_out), exist_ok=True)
-    os.makedirs(os.path.dirname(args.metrics_out), exist_ok=True)
-
-    df_raw = pd.read_csv(args.data)
-    validate_schema(df_raw)
-
-    df_encoded, features = preprocess_data(df_raw)
-
-    X = df_encoded[features]
-    y = df_encoded["comptage_horaire"]
-
-    target_cols = ["identifiant_du_site_de_comptage"]
-    numeric_cols = [c for c in features if c not in target_cols]
-
-    model_params = dict(
-        n_estimators=1200,
-        learning_rate=0.03,
-        max_depth=-1,
-        num_leaves=63,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1,
-    )
-
-    pipeline, metrics = train_final_model(
-        X=X,
-        y=y,
-        model_params=model_params,
-        target_cols=target_cols,
-        numeric_cols=numeric_cols,
-        test_size_ratio=args.test_ratio,
-    )
-
-    save_model(pipeline, args.model_out)
-
-    with open(args.metrics_out, "w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=2)
-
-    print("\n Training done.")
-    print("Saved model:", args.model_out)
-    print("Saved metrics:", args.metrics_out)
-    print("Metrics:", metrics)
-
+    # Feature Importance Plot
+    st.subheader("Top Features Importantes")
+    transformed_feature_names = pipeline.named_steps['preprocessor'].get_feature_names_out()
+    feature_importances = pipeline.named_steps['model'].feature_importances_
+    importances_df = pd.DataFrame({'Feature': transformed_feature_names , 'Importance': feature_importances}).sort_values(by='Importance', ascending=False).head(10)
+    fig, ax = plt.subplots(figsize=(8,6))
+    ax.barh(importances_df['Feature'], importances_df['Importance'], color='skyblue')
+    ax.set_xlabel('Importance')
+    ax.set_ylabel('Feature')
+    ax.set_title('Top 10 features importantes')
+    ax.invert_yaxis()
+    st.pyplot(fig)
 
 if __name__ == "__main__":
-    main()
+    train_model()

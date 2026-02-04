@@ -1,12 +1,19 @@
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
-from data.loader import load_raw_data, load_processed_data
+from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
+
 
 #-------------------------------------------------------PAGE OVERVIEW-------------------------------------------------------------------
 def show_overview():
-    raw_df = load_raw_data()
-    processed_df, feature_names = load_processed_data(raw_df)
+    raw_df_velib = load_raw_velib_data()
+    raw_df_weather = load_raw_weather_data()
+    processed_df, feature_names = load_processed_data(raw_df_velib, raw_df_weather)
+    
+    raw_df_velib["date_et_heure_de_comptage"] = pd.to_datetime(raw_df_velib["date_et_heure_de_comptage"])
+    date_min = raw_df_velib["date_et_heure_de_comptage"].min()
+    date_max = raw_df_velib["date_et_heure_de_comptage"].max()
+    nb_mois = ((date_max.year - date_min.year) * 12 + (date_max.month - date_min.month) + 1)
 
     st.title("Analyse de l'affluence des vélos à Paris")
 
@@ -25,19 +32,19 @@ La ville de Paris déploie depuis plusieurs années des compteurs à vélo perma
     except FileNotFoundError:
         st.error("Le fichier 'compteur_paris.html' est introuvable. Assurez-vous qu'il se trouve dans le dossier du projet.")
 
-    st.markdown("""
-Cette carte interactive présente les emplacements des bornes de comptage vélos à Paris. Chaque point correspond à un site de comptage, permettant de suivre les flux de cyclistes à différents moments de la journée. En passant la souris dessus nous pouvons voir le nom de la rue où la borne est implantée. Dans notre jeu de données nous avons **68 sites** de comptage.
+    st.markdown(f"""
+Cette carte interactive présente les emplacements des bornes de comptage vélos à Paris. Chaque point correspond à un site de comptage, permettant de suivre les flux de cyclistes à différents moments de la journée. En passant la souris dessus nous pouvons voir le nom de la rue où la borne est implantée. Dans notre jeu de données nous avons **{raw_df_velib["identifiant_du_site_de_comptage"].nunique()} sites** de comptage.
 """)
 
     st.subheader("Structure et description des données")
 
     st.markdown("### Période des données")
-    st.markdown("La période analysée contient **13 mois** de données allant du **1 novembre 2024 au 30 novembre 2025**.")
+    st.markdown(f"La période analysée contient **{nb_mois} mois** de données allant du **{date_min.strftime('%d %B %Y')} au {date_max.strftime('%d %B %Y')}**.")
 
     st.markdown("### Dictionnaire des données d'origine")
 
     data_description = pd.DataFrame({
-        "Nom de la donnée": raw_df.columns,
+        "Nom de la donnée": raw_df_velib.columns,
     "Description": [
         "Identifiant du compteur, de type string.",
         "Rue du compteur + points cardinaux (N-S-E-O), de type string.",
@@ -75,7 +82,7 @@ Notre jeu de données initial provient du site de la **mairie de Paris** (*dispo
 - Fusion avec les données d'une API météo (température, vent, pluie, neige)
 - Encodage des valeurs temporels (heure, jour, mois, saison) en valeurs cycliques (sin/cos).
                 
-Grâce à cette étape de feature engineering nous sommes passés d'un dataset de **{len(raw_df.columns)}** colonnes avec **{len(raw_df)}** lignes à un dataset de **{len(processed_df.columns)}** colonnes avec **{len(processed_df)}** lignes de données prêtes à être utilisées.
+Grâce à cette étape de feature engineering nous sommes passés d'un dataset de **{len(raw_df_velib.columns)}** colonnes avec **{len(raw_df_velib)}** lignes à un dataset de **{len(processed_df.columns)}** colonnes avec **{len(processed_df)}** lignes de données prêtes à être utilisées.
 """)
     
     st.markdown("### Dictionnaire des données utilisées")
@@ -113,7 +120,7 @@ Grâce à cette étape de feature engineering nous sommes passés d'un dataset d
     st.dataframe(data_description, use_container_width=True, height= 913)
 
     st.subheader("Comparaison des données brutes et finales")
-    raw_nonzero = raw_df[raw_df['comptage_horaire'] > 0]
+    raw_nonzero = raw_df_velib[raw_df_velib['comptage_horaire'] > 0]
     merged_nonzero = processed_df[processed_df['comptage_horaire'] > 0]
     try:
         tab1, tab2 = st.tabs(["Données brutes", "Données finales"])
@@ -121,7 +128,7 @@ Grâce à cette étape de feature engineering nous sommes passés d'un dataset d
         with tab1:
             st.subheader("Données brutes (originales)")
             st.dataframe(raw_nonzero.head(20), use_container_width=True)
-            st.markdown(f"Nombre de lignes : **{len(raw_df):,}** | Nombre de colonnes : **{len(raw_df.columns)}**")
+            st.markdown(f"Nombre de lignes : **{len(raw_df_velib):,}** | Nombre de colonnes : **{len(raw_df_velib.columns)}**")
 
         with tab2:
             st.subheader("Données après feature engineering")

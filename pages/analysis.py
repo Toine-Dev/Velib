@@ -1,7 +1,7 @@
 import streamlit as st
-from data.loader import load_raw_data, load_processed_data
+from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
 import os
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import pearsonr, ttest_ind, chi2_contingency
 import pandas as pd
@@ -30,9 +30,9 @@ def ensure_png_hourly(df, path=os.path.join(PLOT_DIR, "hourly.png")):
 def ensure_png_weather(df, path=os.path.join(PLOT_DIR, "weather_effects.png")):
     if os.path.exists(path):
         return path
-    df['pluie'] = df['rain'] > 0
-    df['neige'] = df['snowfall'] > 0
-    df['vent'] = df['wind_speed_10m'] > 15
+    df['pluie'] = df['pluie'] > 0
+    df['neige'] = df['neige'] > 0
+    df['vent'] = df['vent'] > 15
     fig, axes = plt.subplots(2,2, figsize=(14,10))
     axes = axes.flatten()
     sns.barplot(x='pluie', y='comptage_horaire', data=df, ax=axes[0])
@@ -82,11 +82,14 @@ def ensure_png_seasons(df, path=os.path.join(PLOT_DIR, "seasons.png")):
 
 #-------------------------------------------------------PAGE DATA ANALYSIS-------------------------------------------------------------------
 def show_analysis():
-    raw_df = load_raw_data()
-    processed_df = load_processed_data(raw_df)
+    raw_df_velib = load_raw_velib_data()
+    raw_df_weather = load_raw_weather_data()
+    processed_df, feature_names = load_processed_data(raw_df_velib, raw_df_weather)
 
     st.title("Data Analysis : Étude statistique et visualisation du trafic cycliste")
     
+    processed_df["heure"] = processed_df["date_et_heure_de_comptage"].dt.hour
+
     # Ensure PNGs exist (first call will generate and cache them)
     hourly_path = ensure_png_hourly(processed_df)
     weather_path = ensure_png_weather(processed_df)

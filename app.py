@@ -1,26 +1,19 @@
 import streamlit as st
 import pandas as pd
-# from my_utils import *
 import folium
-from folium.plugins import HeatMap
-from streamlit_folium import folium_static
 from datetime import timedelta
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-# import pmdarima as pm
 import os
-# from my_utils import save_model, load_model
 import streamlit.components.v1 as components
-from scipy.stats import pearsonr, ttest_ind, f_oneway, chi2_contingency
-# import plotly.express as px
-# import plotly.figure_factory as ff
 import seaborn as sns
-import json
-
 from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
+from pages.overview import show_overview
+# from pages.analysis import show_analysis
+# from pages.prediction import show_prediction
 
 # ------------------------------ PATHS ------------------------------
-# CSV_PATH = "comptage_velo_donnees_compteurs.csv"
+CSV_PATH = "comptage_velo_donnees_compteurs.csv"
 PLOT_DIR = "assets/plots"
 os.makedirs(PLOT_DIR, exist_ok=True)
 
@@ -94,28 +87,11 @@ def ensure_png_seasons(df, path=os.path.join(PLOT_DIR, "seasons.png")):
     plt.close(fig)
     return path
 
-# @st.cache_data
-# def load_raw_data(csv_path=CSV_PATH):
-#     df = pd.read_csv(csv_path, sep=";")
-#     df.columns = [col.strip().replace(" ", "_").lower() for col in df.columns]
-#     return df
-
-# @st.cache_data
-# def load_processed_data(raw_df):
-#     processed_df, feature_names = preprocess_data(raw_df)
-#     return processed_df, feature_names
-
 # -----------------------------------------------------LOAD DATA--------------------------------------------------------------------
 raw_velib_df = load_raw_velib_data()
 raw_weather_df = load_raw_weather_data()
-from pages.overview import show_overview
-from pages.analysis import show_analysis
-from pages.prediction import show_prediction
-
-# ------------------------------ PATHS ------------------------------
-# CSV_PATH = "comptage_velo_donnees_compteurs.csv"
-
 processed_df, feature_names = load_processed_data(raw_velib_df, raw_weather_df)
+
 #------------------------------------------------------- SIDE BAR-------------------------------------------------------------------
 with st.sidebar:
     page = st.radio(
@@ -166,18 +142,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.dataframe(raw_velib_df.head())
-st.dataframe(raw_weather_df.head())
-st.dataframe(processed_df.head())
-st.write(processed_df.columns)
+# st.dataframe(raw_velib_df.head())
+# # st.dataframe(raw_weather_df.head())
+# # st.dataframe(processed_df.head())
+# st.write(processed_df.columns)
+
 if page == "Overview":
     show_overview()
 
-elif page == "Data Analysis":
-    show_analysis()
+# elif page == "Data Analysis":
+#     show_analysis()
 
-elif page == "Model & Predictions":
-    show_prediction()
-
-# st.dataframe(raw_df.head())
-# st.write(raw_df.columns)
+# elif page == "Model & Predictions":
+#     show_prediction()

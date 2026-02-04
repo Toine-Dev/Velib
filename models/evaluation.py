@@ -3,13 +3,10 @@ import json
 import os
 import numpy as np
 import pandas as pd
-
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from pathlib import Path
-import sys
-# Ensure project root is on sys.path when running as a script so imports like `utils.my_utils` work
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.my_utils import preprocess_data, load_model
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
+from utils.config import load_model
 
 
 def main():
@@ -46,7 +43,9 @@ def main():
                 f"Failed to read data file '{args.data}': {e}; also tried sep=';' -> {e2}"
             )
 
-    df_encoded, features = preprocess_data(df_raw)
+    raw_df_velib = load_raw_velib_data()
+    raw_df_weather = load_raw_weather_data()
+    df_encoded, features = load_processed_data(raw_df_velib, raw_df_weather)
 
     if "comptage_horaire" not in df_encoded.columns:
         raise ValueError(

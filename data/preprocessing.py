@@ -28,6 +28,7 @@ def get_season_from_date(date):
     else:
         return 'winter'
     
+
 def is_night(row):
     # Example rough night hours per season (24h format)
     night_hours = {
@@ -76,30 +77,33 @@ def is_vacances(date):
             return True
     return False
 
+
 # Function to classify rush hour
 def is_rush_hour(dt):
     hour = dt.hour
     return (7 <= hour < 10) or (17 <= hour < 20)
 
-# Les valeurs par défaut sont les valeurs maximales pour couvrir tout le dataset
-def query_weather_api(start="2024-08-01", end="2025-10-07"):
-    # API endpoint
-    url = f"https://archive-api.open-meteo.com/v1/archive?latitude=48.8575&longitude=2.3514&start_date={start}&end_date={end}&hourly=rain,snowfall,apparent_temperature,wind_speed_10m"
-    # Send GET request
-    response = requests.get(url)
-    if response.status_code == 200:
-        print("Weather data retrieved successfully.")
-        data = response.json()
-        records = data["hourly"]
-        # Convert list of dicts to DataFrame
-        df_weather = pd.DataFrame(records)
-        df_weather['time'] = pd.to_datetime(df_weather['time'], utc=True)
-        df_weather['time'] = df_weather['time'].dt.tz_convert(None)
-        return df_weather
 
-    else:
-        print("Error:", response.status_code)
-    return pd.DataFrame(columns=['time', 'rain', 'snowfall', 'apparent_temperature', 'wind_speed_10m'])
+# # Les valeurs par défaut sont les valeurs maximales pour couvrir tout le dataset
+# def query_weather_api(start="2024-08-01", end="2025-10-07"):
+#     # API endpoint
+#     url = f"https://archive-api.open-meteo.com/v1/archive?latitude=48.8575&longitude=2.3514&start_date={start}&end_date={end}&hourly=rain,snowfall,apparent_temperature,wind_speed_10m"
+#     # Send GET request
+#     response = requests.get(url)
+#     if response.status_code == 200:
+#         print("Weather data retrieved successfully.")
+#         data = response.json()
+#         records = data["hourly"]
+#         # Convert list of dicts to DataFrame
+#         df_weather = pd.DataFrame(records)
+#         df_weather['time'] = pd.to_datetime(df_weather['time'], utc=True)
+#         df_weather['time'] = df_weather['time'].dt.tz_convert(None)
+#         return df_weather
+
+#     else:
+#         print("Error:", response.status_code)
+#     return pd.DataFrame(columns=['time', 'rain', 'snowfall', 'apparent_temperature', 'wind_speed_10m'])
+
 
 def static_features(df):
     site_stats = (
@@ -115,6 +119,7 @@ def static_features(df):
     df = df.merge(site_stats, on='identifiant_du_site_de_comptage', how='left')
     return df
  
+
 def time_varying_features(df):
     # Time-varying features per site
     df = df.sort_values(['identifiant_du_site_de_comptage', 'date_et_heure_de_comptage'])
@@ -151,58 +156,6 @@ def add_cyclic_features(df):
 
     return df
 
-# # Load and preprocess data
-# def preprocess_data(df):
-#     print('Preprocessing has started.')
-#     df = df.dropna().copy()
-#     df['date_et_heure_de_comptage'] = pd.to_datetime(df['date_et_heure_de_comptage'].astype(str), errors='coerce', utc=True)
-#     df = df.dropna(subset=['date_et_heure_de_comptage']).copy()
-#     df['date_et_heure_de_comptage'] = df['date_et_heure_de_comptage'].dt.tz_convert(None)
-
-#     # Features temporelles
-#     df['heure'] = df['date_et_heure_de_comptage'].dt.hour
-#     df['mois'] = df['date_et_heure_de_comptage'].dt.month
-#     df['jour'] = df['date_et_heure_de_comptage'].dt.day
-#     # df['nom_jour'] = df['date_et_heure_de_comptage'].dt.day_name(locale='fr_FR.UTF-8')
-#     df['saison'] = df['date_et_heure_de_comptage'].apply(get_season_from_date)
-#     df['vacances'] = df['date_et_heure_de_comptage'].apply(is_vacances)
-#     df['heure_de_pointe'] = df['date_et_heure_de_comptage'].apply(is_rush_hour)
-#     df['nuit'] = df.apply(is_night, axis=1)
-
-#     # Coordonnées
-#     coords = df["coordonnées_géographiques"].str.split(",", expand=True)
-#     df["latitude"] = coords[0].astype(float)
-#     df["longitude"] = coords[1].astype(float)
-
-#     # Ajout météo
-#     df_weather = query_weather_api(df["date_et_heure_de_comptage"].min().strftime("%Y-%m-%d"),
-#                                    df["date_et_heure_de_comptage"].max().strftime("%Y-%m-%d"))
-#     df_merged = pd.merge(df, df_weather, how="left", left_on="date_et_heure_de_comptage", right_on="time").drop(columns=["time"])
-#     df_merged['pluie'] = (df_merged['rain'] > 0)
-#     df_merged['vent'] = (df_merged['wind_speed_10m'] > 30)
-#     df_merged['neige'] = (df_merged['snowfall'] > 0)
-
-#     # Nettoyage colonnes inutiles
-#     df_merged = df_merged.drop(columns=["latitude", "longitude", "date_d'installation_du_site_de_comptage",
-#                                         "identifiant_technique_compteur", "mois_annee_comptage", "identifiant_du_compteur",
-#                                         "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", "rain",
-#                                         "wind_speed_10m", 'lien_vers_photo_du_site_de_comptage', 'id_photos',
-#                                         'test_lien_vers_photos_du_site_de_comptage_', 'id_photo_1', 'url_sites', 'type_dimage',
-#                                         "coordonnées_géographiques"])
-
-#     # Ajout des features statiques et dynamiques
-#     df_merged = static_features(df_merged)
-#     df_merged = time_varying_features(df_merged)
-#     df_merged = df_merged.dropna()
-
-#     # Ajout des features cycliques
-#     df_encoded = add_cyclic_features(df_merged)
-#     print("df_encoded:",df_encoded.columns)
-
-#     # Sélection des features
-#     features = [col for col in df_encoded.columns if col not in ['comptage_horaire', 'date_et_heure_de_comptage']]
-#     df_encoded = df_encoded.sort_values(by='date_et_heure_de_comptage', ascending=True).reset_index(drop = True)
-#     return df_encoded, features
 
 # Load and preprocess data
 def preprocess_velib_data(df):
@@ -216,7 +169,6 @@ def preprocess_velib_data(df):
     df['heure'] = df['date_et_heure_de_comptage'].dt.hour
     df['mois'] = df['date_et_heure_de_comptage'].dt.month
     df['jour'] = df['date_et_heure_de_comptage'].dt.day
-    # df['nom_jour'] = df['date_et_heure_de_comptage'].dt.day_name(locale='fr_FR.UTF-8')
     df['saison'] = df['date_et_heure_de_comptage'].apply(get_season_from_date)
     df['vacances'] = df['date_et_heure_de_comptage'].apply(is_vacances)
     df['heure_de_pointe'] = df['date_et_heure_de_comptage'].apply(is_rush_hour)
@@ -229,11 +181,9 @@ def preprocess_velib_data(df):
 
     return df
 
+
 def preprocess_weather_data(df):
     # Ajout météo
-    # df_weather = query_weather_api(df["date_et_heure_de_comptage"].min().strftime("%Y-%m-%d"),
-    #                                df["date_et_heure_de_comptage"].max().strftime("%Y-%m-%d"))
-    # df_merged = pd.merge(df, df_weather, how="left", left_on="date_et_heure_de_comptage", right_on="time").drop(columns=["time"])
     df['pluie'] = (df['rain'] > 0)
     df['vent'] = (df['wind_speed_10m'] > 30)
     df['neige'] = (df['snowfall'] > 0)
@@ -245,6 +195,7 @@ def preprocess_weather_data(df):
         print("Warning: Some time values could not be converted to datetime.")
 
     return df
+
 
 def preprocess_merged_data(df):
 
