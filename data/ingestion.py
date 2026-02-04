@@ -2,6 +2,8 @@ import time
 import requests
 import pandas as pd
 from typing import List, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 
 VELIB_URL = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records"
@@ -97,7 +99,8 @@ def fetch_velib_data(
     return df
 
 
-WEATHER_URL = "https://archive-api.open-meteo.com/v1/archive"
+HISTORICAL_WEATHER_URL = "https://archive-api.open-meteo.com/v1/archive"
+FORECAST_WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
 
 def fetch_weather_data(
     start_date: str,
@@ -134,8 +137,15 @@ def fetch_weather_data(
         "hourly": "rain,snowfall,apparent_temperature,wind_speed_10m",
     }
 
-    response = requests.get(WEATHER_URL, params=params, timeout=10)
-
+    today = datetime.now(ZoneInfo("Europe/Paris")).date() # Respects daylight saving automatically (matches the semantics of raw dataset which is in Paris local time)
+    
+    end_date_dt = datetime.strptime(end_date, "%Y-%m-%d").date() # Convert velib_max string to date object to compare with yesterday date object
+    
+    if end_date_dt >= today:
+        response = requests.get(FORECAST_WEATHER_URL, params=params, timeout=10)
+    else: 
+        response = requests.get(HISTORICAL_WEATHER_URL, params=params, timeout=10)
+        
     if response.status_code != 200:
         # include response.text to see API error message/details
         raise RuntimeError(f"Weather API error {response.status_code}: {response.text}")
