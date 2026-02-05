@@ -8,6 +8,7 @@ import os
 import streamlit.components.v1 as components
 import seaborn as sns
 from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
+from utils.config import DATA, MODELS
 # from pages.overview import show_overview
 # from pages.analysis import show_analysis
 # from pages.prediction import show_prediction

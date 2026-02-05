@@ -5,6 +5,7 @@ from utils.config import load_model, make_preprocessor, train_final_model, save_
 from data.loader import load_processed_data, load_raw_velib_data, load_raw_weather_data
 import streamlit as st
 import matplotlib.pyplot as plt
+from utils.config import DATA, MODELS
 
 def train_model():
     pipeline = None

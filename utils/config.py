@@ -7,6 +7,12 @@ from category_encoders.target_encoder import TargetEncoder
 from lightgbm import LGBMRegressor
 import pickle
 from sklearn.pipeline import Pipeline
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+DATA = ROOT / "data"
+MODELS = ROOT / "models"
 
 def make_preprocessor(target_encode_cols, numeric_cols):
     preprocessor = ColumnTransformer(

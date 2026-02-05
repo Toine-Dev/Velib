@@ -9,6 +9,7 @@ from folium.plugins import HeatMap
 from streamlit_folium import folium_static
 from datetime import timedelta
 from data.loader import load_raw_data, load_processed_data
+from utils.config import DATA, MODELS
 from data.preprocessing import (
     query_weather_api,
     add_cyclic_features,

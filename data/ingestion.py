@@ -4,6 +4,7 @@ import pandas as pd
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from utils.config import DATA, MODELS
 
 
 VELIB_URL = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records"

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
 from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
+from utils.config import DATA, MODELS
 
 
 #-------------------------------------------------------PAGE OVERVIEW-------------------------------------------------------------------

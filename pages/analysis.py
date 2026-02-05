@@ -6,6 +6,7 @@ import seaborn as sns
 from scipy.stats import pearsonr, ttest_ind, chi2_contingency
 import pandas as pd
 from data.preprocessing import *
+from utils.config import DATA, MODELS
 
 PLOT_DIR = "assets/plots"
 os.makedirs(PLOT_DIR, exist_ok=True)

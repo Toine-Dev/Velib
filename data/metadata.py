@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict
 import json
 import shutil
+from utils.config import DATA, MODELS
 
 
 # Paths

@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import requests
+from utils.config import DATA, MODELS
 
 
 # Function to determine the season from a date

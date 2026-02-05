@@ -7,6 +7,7 @@ from data.preprocessing import *
 from data.ingestion import *
 from datetime import timedelta 
 from data.loader import *
+from utils.config import DATA, MODELS
 
 def predict_model():
 

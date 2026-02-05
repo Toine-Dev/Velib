@@ -1,6 +1,7 @@
 from data.preprocessing import preprocess_velib_data, preprocess_weather_data, preprocess_merged_data
 import streamlit as st
 import pandas as pd
+from utils.config import DATA, MODELS
 
 VELIB_PATH = "comptage_velo_donnees_compteurs.csv"
 WEATHER_PATH = "weather_data.csv"

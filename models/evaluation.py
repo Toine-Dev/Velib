@@ -7,6 +7,7 @@ from pathlib import Path
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
 from utils.config import load_model
+from utils.config import DATA, MODELS
 
 
 def main():
