@@ -4,6 +4,7 @@ import pandas as pd
 
 VELIB_PATH = "comptage_velo_donnees_compteurs.csv"
 WEATHER_PATH = "weather_data.csv"
+WEATHER_FORECAST_PATH = "forecast_weather_data.csv"
 
 
 @st.cache_data
@@ -24,6 +25,18 @@ def load_processed_data(raw_velib_df, raw_weather_df):
     df_merged = pd.merge(processed_velib_data, processed_weather_data, how="left", left_on="date_et_heure_de_comptage", right_on="time").drop(columns=["time"])
     processed_df, feature_names = preprocess_merged_data(df_merged)
     return processed_df, feature_names
+
+@st.cache_data
+def load_forecast_weather_data(weather_forecast_path=WEATHER_FORECAST_PATH):
+    df_forecast_weather = pd.read_csv(weather_forecast_path, parse_dates=['time'])
+    return df_forecast_weather
+
+# @st.cache_data
+# def load_all_data():
+#     raw_velib_df = load_raw_velib_data()
+#     raw_weather_df = load_raw_weather_data()
+#     processed_df, feature_names = load_processed_data(raw_velib_df, raw_weather_df)
+#     return processed_df, feature_names
 
 
 # fast API

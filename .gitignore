@@ -7,3 +7,5 @@ metadata/
 __pycache__/
 assets/
 *.pkl
+test.py
+*.html

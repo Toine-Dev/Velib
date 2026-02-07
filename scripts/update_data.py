@@ -3,11 +3,12 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import sys
+import json
 
 # Add project root to path otherwise imports below fail when running this script directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.metadata import init_metadata_if_missing, save_metadata
+from data.metadata import init_metadata_if_missing, save_metadata, load_metadata
 from data.ingestion import fetch_velib_data, fetch_weather_data
 
 RAW_VELIB_PATH = Path("./comptage_velo_donnees_compteurs.csv")
@@ -126,7 +127,49 @@ def update_data():
     save_metadata(state)
     print("✅ Dataset successfully updated")
 
+# def recursive_forecast_weather_fetch(start_date: str, end_date: str, latitude: float = 48.8575, longitude: float = 2.3514) -> pd.DataFrame:
+#     """
+#     Recursively fetch weather data in 30-day chunks to handle API limitations.
+
+#     Parameters
+#     ----------
+#     start_date : str
+#         Start date (YYYY-MM-DD)
+#     end_date : str
+#         End date (YYYY-MM-DD)
+#     latitude : float
+#     longitude : float
+
+#     Returns
+#     -------
+#     pd.DataFrame
+#         Weather dataframe indexed by timestamp
+#     """
+#     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+#     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+
+#     if (end_dt - start_dt).days <= 30:
+#         return fetch_weather_data(start_date, end_date, latitude, longitude)
+
+#     mid_dt = start_dt + timedelta(days=30)
+#     df1 = recursive_forecast_weather_fetch(start_date, mid_dt.strftime("%Y-%m-%d"), latitude, longitude)
+#     df2 = recursive_forecast_weather_fetch(mid_dt.strftime("%Y-%m-%d"), end_date, latitude, longitude)
+
+    # return pd.concat([df1, df2], ignore_index=True)
+
 if __name__ == "__main__":
-    update_data()
+    # update_data()
+    state = load_metadata()
+    weather_max = state["weather"]["max_date"]
+    weather_max_dt = datetime.strptime(weather_max, "%Y/%m/%d").date()
+    weather_max_plus_3 = weather_max_dt + timedelta(days=3)
+    weather_max_formatted = weather_max_dt.strftime("%Y-%m-%d")
+    weather_max_plus_3_formatted = weather_max_plus_3.strftime("%Y-%m-%d")
+    forecast_weather_data_df = fetch_weather_data(start_date=weather_max_formatted, end_date=weather_max_plus_3_formatted)
+    forecast_weather_data_df.to_csv("forecast_weather_data.csv", index=False) # Save to CSV for inspection
+    # forecast_weather_data_df['time'] = forecast_weather_data_df['time'].astype(str) # Convert time column to string for JSON serialization
+    # forecast_weather_data_dict = forecast_weather_data_df.to_dict(orient="records")
+    # with open("forecast_weather_data.csv", "w") as f:
+    #     json.dump(forecast_weather_data_dict, f, indent=2)
 
 # yesterday (31/01/2026) API returned no data for that same date (and onwards) but did for previous dates (30/01/2026 and before)
