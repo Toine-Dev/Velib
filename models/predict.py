@@ -11,8 +11,9 @@ import folium
 from folium.plugins import HeatMap
 from streamlit_folium import folium_static
 import os
-from model_utils import make_preprocessor, train_final_model, save_model, load_model
+from model_utils import train_final_model, save_model, load_model
 import json
+from data.metadata import last_cached_datetime
 
 def predict_model():
 
@@ -21,18 +22,20 @@ def predict_model():
     raw_df_weather = load_raw_weather_data()
     processed_df, feature_names = load_processed_data(raw_df_velib, raw_df_weather)
     df_forecast_weather = load_forecast_weather_data()
-    st.dataframe(df_forecast_weather)
 
-    start_datetime = pd.to_datetime(raw_df_velib['date_et_heure_de_comptage'].max())
+    # start_datetime = pd.to_datetime(raw_df_velib['date_et_heure_de_comptage'].max())
+    start_datetime, start_date = last_cached_datetime()
+
+    # à mettre dans prediction.py
     st.write(f"Données disponibles jusqu'à : {start_datetime} (heure de Paris).")
     
     st.header("Prédiction pour une date future")
 
-    min_date = start_datetime.date()
+    # start_date = start_datetime.date()
     st.write(f"Veuillez choisir une date/heure STRICTEMENT après {start_datetime}.")
     col1, col2 = st.columns(2)
 
-    pred_date = col1.date_input("Sélectionnez la date", min_value=min_date)
+    pred_date = col1.date_input("Sélectionnez la date", min_value=start_date)
     pred_time = col2.time_input("Sélectionnez l'heure")
     # The tz_localize method does not convert the time, it just assigns the timezone.
     pred_datetime = pd.Timestamp.combine(pred_date, pred_time).tz_localize(start_datetime.tz)
@@ -49,7 +52,7 @@ def predict_model():
     # Vérifier si le modèle existe
     if os.path.exists("model.pkl"):
         pipeline = load_model()
-        model = pipeline.named_steps['model']
+        # model = pipeline.named_steps['model']
         if os.path.exists("metrics.json"):
             with open("metrics.json", "r") as f:
                 metrics = json.load(f)
@@ -59,7 +62,7 @@ def predict_model():
             target_cols = ['identifiant_du_site_de_comptage']
             numeric_cols = [col for col in feature_names if col not in target_cols]
             # Préprocesseur
-            preprocessor = make_preprocessor(target_cols, numeric_cols)
+            # preprocessor = make_preprocessor(target_cols, numeric_cols)
 
             model_params = {
                 "n_estimators" : 500, 
@@ -110,7 +113,7 @@ def predict_model():
         hours_df['heure_de_pointe'] = hours_df['date_et_heure_de_comptage'].apply(is_rush_hour)
         # st.dataframe(hours_df)
         hours_df = hours_df[hours_df['date_et_heure_de_comptage'] <= datetime_pred].copy()
-        st.write("AYUSHI THE SHINIIGAMI")
+
         st.dataframe(hours_df)
         
         # st.write(datetime_pred.strftime("%Y-%m-%d"), (future_hours.max() + timedelta(days=1)).strftime("%Y-%m-%d"))
@@ -179,6 +182,8 @@ def predict_model():
             'min':'site_min_usage'
         }).reset_index()
         cartesian_df = cartesian_df.merge(site_stats, on='identifiant_du_site_de_comptage', how='left')
+        # st.write("Données après merge avec les statistiques par site :")
+        # st.dataframe(cartesian_df)
 
         # -------------------------
         # 6) Ajouter valeurs historiques récursives (lags et rolling)/ Préparer historique par site (tri chronologique du processed_df)
@@ -220,6 +225,7 @@ def predict_model():
 
                 # Construire X_row avec les mêmes feature_names utilisés au training
                 X_row = pd.DataFrame([row_for_pred[feature_names]])
+                # st.write("Données d'entrée pour la prédiction :")
                 # st.dataframe(X_row)
                 # prédiction via pipeline (préprocesseur + modèle)
                 try:
@@ -266,13 +272,13 @@ def predict_model():
         # Stocker pour graphique
         st.session_state['locations'] = locations
 
-    # # Graphique après heatmap
-    # if 'locations' in st.session_state:
-    #     st.subheader("Choisissez un site pour voir son évolution")
-    #     site_choice = st.selectbox("Site :", st.session_state['locations']['nom_du_site_de_comptage'].unique())
-    #     site_data = st.session_state['locations'][st.session_state['locations']['nom_du_site_de_comptage'] == site_choice]
-    #     site_data_sorted = site_data.sort_values('date_et_heure_de_comptage')
-    #     st.line_chart(site_data_sorted[['date_et_heure_de_comptage', 'comptage_horaire']].set_index('date_et_heure_de_comptage'))
+    # Graphique après heatmap
+    if 'locations' in st.session_state:
+        st.subheader("Choisissez un site pour voir son évolution")
+        site_choice = st.selectbox("Site :", st.session_state['locations']['nom_du_site_de_comptage'].unique())
+        site_data = st.session_state['locations'][st.session_state['locations']['nom_du_site_de_comptage'] == site_choice]
+        site_data_sorted = site_data.sort_values('date_et_heure_de_comptage')
+        st.line_chart(site_data_sorted[['date_et_heure_de_comptage', 'comptage_horaire']].set_index('date_et_heure_de_comptage'))
 
 
 if __name__ == "__main__":

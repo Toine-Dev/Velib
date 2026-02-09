@@ -158,7 +158,9 @@ def update_data():
     # return pd.concat([df1, df2], ignore_index=True)
 
 if __name__ == "__main__":
-    # update_data()
+    # Uncomment to run the update pipeline
+    # update_data() # Uncomment to run the update pipeline
+    # Uncomment to run the update pipeline
     state = load_metadata()
     weather_max = state["weather"]["max_date"]
     weather_max_dt = datetime.strptime(weather_max, "%Y/%m/%d").date()
