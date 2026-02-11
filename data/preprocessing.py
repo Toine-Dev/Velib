@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import requests
 
 
 # Function to determine the season from a date
@@ -82,27 +81,6 @@ def is_vacances(date):
 def is_rush_hour(dt):
     hour = dt.hour
     return (7 <= hour < 10) or (17 <= hour < 20)
-
-
-# # Les valeurs par défaut sont les valeurs maximales pour couvrir tout le dataset
-# def query_weather_api(start="2024-08-01", end="2025-10-07"):
-#     # API endpoint
-#     url = f"https://archive-api.open-meteo.com/v1/archive?latitude=48.8575&longitude=2.3514&start_date={start}&end_date={end}&hourly=rain,snowfall,apparent_temperature,wind_speed_10m"
-#     # Send GET request
-#     response = requests.get(url)
-#     if response.status_code == 200:
-#         print("Weather data retrieved successfully.")
-#         data = response.json()
-#         records = data["hourly"]
-#         # Convert list of dicts to DataFrame
-#         df_weather = pd.DataFrame(records)
-#         df_weather['time'] = pd.to_datetime(df_weather['time'], utc=True)
-#         df_weather['time'] = df_weather['time'].dt.tz_convert(None)
-#         return df_weather
-
-#     else:
-#         print("Error:", response.status_code)
-#     return pd.DataFrame(columns=['time', 'rain', 'snowfall', 'apparent_temperature', 'wind_speed_10m'])
 
 
 def static_features(df):
