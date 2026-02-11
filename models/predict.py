@@ -19,6 +19,8 @@ def predict_model(datetime_pred):
     processed_df, feature_names = load_processed_data(raw_df_velib, raw_df_weather)
     df_forecast_weather = load_forecast_weather_data()
 
+    locations = None
+
     # start_datetime = pd.to_datetime(raw_df_velib['date_et_heure_de_comptage'].max())
     start_datetime, start_date = last_cached_datetime()
 
@@ -89,5 +91,8 @@ def predict_model(datetime_pred):
     coords_df = coords_df.dropna(subset=['latitude', 'longitude'])
 
     locations = pd.merge(coords_df, cartesian_df, on='identifiant_du_site_de_comptage', how='inner')
+
+    if locations is None:
+        raise RuntimeError("Prediction failed: locations never created")
 
     return locations
