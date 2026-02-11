@@ -43,26 +43,5 @@ def train_model():
                 json.dump(metrics, f)
             st.success("Modèle entraîné et sauvegardé dans model.pkl")
 
-    # Afficher les métriques
-    if metrics:
-        st.write("Validation Metrics:")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("MAE", f"{metrics['MAE']:.4f}")
-        col2.metric("RMSE", f"{metrics['RMSE']:.4f}")
-        col3.metric("R²", f"{metrics['R2']:.4f}")
-
-    # Feature Importance Plot
-    st.subheader("Top Features Importantes")
-    transformed_feature_names = pipeline.named_steps['preprocessor'].get_feature_names_out()
-    feature_importances = pipeline.named_steps['model'].feature_importances_
-    importances_df = pd.DataFrame({'Feature': transformed_feature_names , 'Importance': feature_importances}).sort_values(by='Importance', ascending=False).head(10)
-    fig, ax = plt.subplots(figsize=(8,6))
-    ax.barh(importances_df['Feature'], importances_df['Importance'], color='skyblue')
-    ax.set_xlabel('Importance')
-    ax.set_ylabel('Feature')
-    ax.set_title('Top 10 features importantes')
-    ax.invert_yaxis()
-    st.pyplot(fig)
-
 if __name__ == "__main__":
     train_model()
