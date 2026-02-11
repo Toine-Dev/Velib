@@ -8,9 +8,9 @@ import os
 import streamlit.components.v1 as components
 import seaborn as sns
 from data.loader import load_raw_velib_data, load_raw_weather_data, load_processed_data
-# from pages.overview import show_overview
-# from pages.analysis import show_analysis
-# from pages.prediction import show_prediction
+from pages.overview import show_overview
+from pages.analysis import show_analysis
+from pages.prediction import show_prediction
 
 # ------------------------------ PATHS ------------------------------
 CSV_PATH = "comptage_velo_donnees_compteurs.csv"
@@ -72,16 +72,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# st.dataframe(raw_velib_df.head())
-# # st.dataframe(raw_weather_df.head())
-# # st.dataframe(processed_df.head())
-# st.write(processed_df.columns)
+if page == "Overview":
+    show_overview()
 
-# if page == "Overview":
-#     show_overview()
+elif page == "Data Analysis":
+    show_analysis()
 
-# elif page == "Data Analysis":
-#     show_analysis()
-
-# elif page == "Model & Predictions":
-#     show_prediction()
+elif page == "Model & Predictions":
+    show_prediction()
