@@ -23,6 +23,8 @@ class PredictionResponse(BaseModel):
 def health():
     return {"status": "ok"}
 
+# Format date pour tester API : "2026-02-12 15:00:00"
+
 @app.post("/predict")
 def predict(req: PredictRequest):
 
