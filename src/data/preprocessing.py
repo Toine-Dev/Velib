@@ -1,6 +1,16 @@
+import json
+
 import pandas as pd
 import numpy as np
+from sqlalchemy import create_engine, text
+from utils.config import database_url
 
+def standardize_columns(df):
+    df.columns = [
+        col.strip().replace(" ", "_").lower()
+        for col in df.columns
+    ]
+    return df
 
 # Function to determine the season from a date
 def get_season_from_date(date):
@@ -152,10 +162,18 @@ def preprocess_velib_data(df):
     df['heure_de_pointe'] = df['date_et_heure_de_comptage'].apply(is_rush_hour)
     df['nuit'] = df.apply(is_night, axis=1)
 
-    # Coordonnées
-    coords = df["coordonnées_géographiques"].str.split(",", expand=True)
-    df["latitude"] = coords[0].astype(float)
-    df["longitude"] = coords[1].astype(float)
+    # # Coordonnées
+    # coords = df["coordonnées_géographiques"].str.split(",", expand=True)
+    # df["latitude"] = coords[0].astype(float)
+    # df["longitude"] = coords[1].astype(float)
+
+    # Alternative parsing of coordinates if they are stored as JSON strings (e.g. '{"lat": 48.8575, "lon": 2.3514}')
+    coords = df["coordonnées_géographiques"].apply(
+        lambda s: json.loads(s) if isinstance(s, str) and s.strip().startswith("{") else {}
+    )
+
+    df["latitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lat")), errors="coerce")
+    df["longitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lon") or d.get("lng")), errors="coerce")
 
     return df
 
@@ -178,15 +196,18 @@ def preprocess_weather_data(df):
 def preprocess_merged_data(df):
 
     # Nettoyage colonnes inutiles
-    df = df.drop(columns=["latitude", "longitude", "date_d'installation_du_site_de_comptage",
-                                        "identifiant_technique_compteur", "mois_annee_comptage", "identifiant_du_compteur",
-                                        "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", "rain",
-                                        "wind_speed_10m", 'lien_vers_photo_du_site_de_comptage', 'id_photos',
-                                        'test_lien_vers_photos_du_site_de_comptage_', 'id_photo_1', 'url_sites', 'type_dimage',
-                                        "coordonnées_géographiques"])
+    # df = df.drop(columns=["latitude", "longitude", "date_d'installation_du_site_de_comptage",
+    #                                     "identifiant_technique_compteur", "mois_annee_comptage", "identifiant_du_compteur",
+    #                                     "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", "rain",
+    #                                     "wind_speed_10m", 'lien_vers_photo_du_site_de_comptage', 'id_photos',
+    #                                     'test_lien_vers_photos_du_site_de_comptage_', 'id_photo_1', 'url_sites', 'type_dimage',
+    #                                     "coordonnées_géographiques"])
+    df = df.drop(columns=["latitude", "longitude", "identifiant_du_compteur", "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", 
+                          "rain","wind_speed_10m", "coordonnées_géographiques"])
+                                        
 
     # Ajout des features statiques et dynamiques
-    df = static_features(df)
+    # df = static_features(df)
     df = time_varying_features(df)
     df = df.dropna()
 
@@ -198,3 +219,62 @@ def preprocess_merged_data(df):
     features = [col for col in df_encoded.columns if col not in ['comptage_horaire', 'date_et_heure_de_comptage']]
     df_encoded = df_encoded.sort_values(by='date_et_heure_de_comptage', ascending=True).reset_index(drop = True)
     return df_encoded, features
+
+
+
+
+
+
+DB_URL = database_url()
+
+RAW_TABLE = "velib_raw"
+FEATURES_TABLE = "site_features"
+
+engine = create_engine(DB_URL, future=True)
+
+def main():
+    with engine.begin() as conn:  # auto-commit/rollback
+        conn.execute(text(f"""
+        CREATE TABLE IF NOT EXISTS {FEATURES_TABLE} (
+          identifiant_du_site_de_comptage text PRIMARY KEY,
+          n bigint NOT NULL,
+          mean double precision,
+          std double precision,
+          min double precision,
+          max double precision
+        );
+        """))
+
+        conn.execute(text(f"""
+        CREATE INDEX IF NOT EXISTS idx_raw_site
+        ON {RAW_TABLE} (identifiant_du_site_de_comptage);
+        """))
+
+        conn.execute(text(f"""
+        INSERT INTO {FEATURES_TABLE} (
+          identifiant_du_site_de_comptage,
+          n,
+          mean,
+          std,
+          min,
+          max
+        )
+        SELECT
+          identifiant_du_site_de_comptage,
+          COUNT(comptage_horaire) AS n,
+          AVG(comptage_horaire)::double precision AS mean,
+          STDDEV_SAMP(comptage_horaire)::double precision AS std,
+          MIN(comptage_horaire)::double precision AS min,
+          MAX(comptage_horaire)::double precision AS max
+        FROM {RAW_TABLE}
+        WHERE comptage_horaire IS NOT NULL
+        GROUP BY identifiant_du_site_de_comptage
+        ON CONFLICT (identifiant_du_site_de_comptage) DO UPDATE SET
+          n = EXCLUDED.n,
+          mean = EXCLUDED.mean,
+          std = EXCLUDED.std,
+          min = EXCLUDED.min,
+          max = EXCLUDED.max;
+        """))
+
+    print("✅ site_features refreshed")
