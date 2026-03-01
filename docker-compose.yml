@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: ml_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
 
@@ -78,14 +79,54 @@ services:
     build: .
     depends_on:
       - db
+      - mlflow
     volumes:
       - .:/app
     environment:
       DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: "1"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: velib_forecast
     command: python scripts/train_model.py
     restart: "no"
 
+  # mlflow:
+  #   build: .
+  #   depends_on:
+  #     - db
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - mlflow_artifacts:/mlflow/artifacts
+  #   environment:
+  #     # Store MLflow runs/params/metrics in the same Postgres instance
+  #     MLFLOW_BACKEND_STORE_URI: postgresql://ml_user:ml_password@db:5432/mlflow_db
+  #     # Store model files + artifacts on a Docker volume (persistent)
+  #     MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+  #   command: >
+  #     mlflow server
+  #     --host 0.0.0.0
+  #     --port 5000
+  #     --backend-store-uri ${MLFLOW_BACKEND_STORE_URI}
+  #     --default-artifact-root ${MLFLOW_DEFAULT_ARTIFACT_ROOT}
+  #   restart: "no"
+
+  mlflow:
+    build: .
+    depends_on:
+      - db
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://ml_user:ml_password@db:5432/mlflow_db
+      --default-artifact-root /mlflow/artifacts
+
 volumes:
   postgres_data:
+  mlflow_artifacts:

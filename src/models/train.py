@@ -9,6 +9,58 @@ import pickle
 from sklearn.pipeline import Pipeline
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from pandas.api.types import (
+    is_bool_dtype,
+    is_numeric_dtype,
+    is_datetime64_any_dtype,
+)
+
+def infer_feature_columns(
+    df: pd.DataFrame,
+    feature_names: list[str],
+    target_encode_cols: list[str],
+    exclude_cols: list[str] | None = None,
+):
+    """
+    Returns (numeric_cols, passthrough_cols) while excluding:
+    - target-encoded columns (handled separately)
+    - datetime columns (unless you explicitly engineer them)
+    - any explicitly excluded columns
+
+    Booleans are included in numeric_cols (and should be cast to int).
+    """
+    exclude_cols = set(exclude_cols or [])
+    target_encode_cols_set = set(target_encode_cols)
+
+    numeric_cols: list[str] = []
+    passthrough_cols: list[str] = []  # optional, for already-ready numeric or other handling
+
+    for col in feature_names:
+        if col in exclude_cols or col in target_encode_cols_set:
+            continue
+
+        s = df[col]
+
+        # Exclude datetimes from scaling by default
+        if is_datetime64_any_dtype(s):
+            continue
+
+        # Booleans → numeric
+        if is_bool_dtype(s):
+            numeric_cols.append(col)
+            continue
+
+        # Numeric dtypes → numeric
+        if is_numeric_dtype(s):
+            numeric_cols.append(col)
+            continue
+
+        # Everything else (object/category) is NOT safe to scale.
+        # You can either drop it or add another transformer later.
+        # For now we drop it.
+        # passthrough_cols.append(col)
+
+    return numeric_cols, passthrough_cols
 
 
 def load_training_data_from_db(engine: Engine, table: str = "velib_weather_processed"):
@@ -41,6 +93,15 @@ def train_final_model(X, y, model_params, target_cols, numeric_cols,
     """
     Trains the final model on train+val and evaluates on unseen test set.
     """
+
+    # Ensure y is 1D
+    if isinstance(y, pd.DataFrame):
+        if y.shape[1] != 1:
+            raise ValueError(f"y has {y.shape[1]} columns; expected 1.")
+        y = y.iloc[:, 0]
+    else:
+        y = pd.Series(y)
+
     # Split chronologically
     test_size = int(len(X) * test_size_ratio)
     X_trainval, X_test = X.iloc[:-test_size], X.iloc[-test_size:] # Assumes data is chronologically sorted from oldest to newest
