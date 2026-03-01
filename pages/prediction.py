@@ -24,7 +24,7 @@ def show_prediction():
     # Vérifier si le modèle existe
     if os.path.exists("model.pkl"):
         pipeline = load_model()
-        model = pipeline.named_steps['model']
+        # model = pipeline.named_steps['model']
         if os.path.exists("metrics.json"):
             with open("metrics.json", "r") as f:
                 metrics = json.load(f)

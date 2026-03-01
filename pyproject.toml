@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "velib-pipeline"
+version = "0.1.0"
+description = "Velib data pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+# Keep dependencies in requirements.txt for now (since your Dockerfile uses it).
+# Later, you can move them here into: dependencies = ["requests", "psycopg2-binary", ...]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

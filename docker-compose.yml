@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ml_user
+      POSTGRES_PASSWORD: ml_password
+      POSTGRES_DB: ml_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  bootstrap_velib_csv:
+    build: .
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    environment:
+      TABLE_NAME: velib_raw
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      CSV_URL: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/exports/csv?lang=fr&timezone=Europe%2FParis&use_labels=true&delimiter=%3B
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+    command: python scripts/bootstrap_velib_csv.py
+    restart: "no"
+
+  update_api:
+    build: .
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+      VELIB_API_URL: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records
+      HISTORICAL_WEATHER_API_URL: https://archive-api.open-meteo.com/v1/archive
+      FORECAST_WEATHER_API_URL: https://api.open-meteo.com/v1/forecast
+      # OPENWEATHER_API_URL: ${OPENWEATHER_API_URL}
+    command: python scripts/update_data.py
+    restart: "no"
+
+  update_api_debug:
+    build: .
+    profiles: ["debug"]
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    ports:
+      - "5678:5678"
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+      VELIB_API_URL: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records
+      HISTORICAL_WEATHER_API_URL: https://archive-api.open-meteo.com/v1/archive
+      FORECAST_WEATHER_API_URL: https://api.open-meteo.com/v1/forecast
+    command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client scripts/update_data.py
+    restart: "no"
+
+  preprocess_data:
+    build: .
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+    command: python scripts/preprocess_data.py
+    restart: "no"
+
+volumes:
+  postgres_data:
