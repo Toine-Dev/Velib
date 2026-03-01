@@ -74,5 +74,18 @@ services:
     command: python scripts/preprocess_data.py
     restart: "no"
 
+  train_model:
+    build: .
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      PYTHONPATH: /app/src
+      PYTHONUNBUFFERED: "1"
+    command: python scripts/train_model.py
+    restart: "no"
+
 volumes:
   postgres_data:

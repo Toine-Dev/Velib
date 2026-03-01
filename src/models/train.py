@@ -7,7 +7,24 @@ from category_encoders.target_encoder import TargetEncoder
 from lightgbm import LGBMRegressor
 import pickle
 from sklearn.pipeline import Pipeline
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 
+
+def load_training_data_from_db(engine: Engine, table: str = "velib_weather_processed"):
+    # Only select columns you actually train on.
+    # You can also do column introspection, but explicit is safer.
+    df = pd.read_sql_query(text(f"SELECT * FROM {table} ORDER BY date_et_heure_de_comptage ASC"), engine)
+
+    target = "comptage_horaire"
+    drop_cols = []  # e.g. drop IDs you don't want besides identifiant_du_site_de_comptage
+    feature_names = [c for c in df.columns if c not in drop_cols + [target]]
+
+    return df, feature_names
+
+
+# Target encoding and standard scaling for numeric features in a single preprocessor to avoid data leakage and ensure consistent transformations between train and test sets.
+# This cannot be done in the preprocessing step because target encoding needs to be fit on the training data and then applied to the test data without refitting.
 def make_preprocessor(target_encode_cols, numeric_cols):
     preprocessor = ColumnTransformer(
         transformers=[

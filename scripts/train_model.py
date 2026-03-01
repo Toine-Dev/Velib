@@ -1,14 +1,19 @@
 from models.train import *
+from utils.config import database_url
+from sqlalchemy import create_engine
 import json
 
 
 if __name__ == "__main__":
-    
+
+    engine = create_engine(database_url())
+    processed_df, feature_names = load_training_data_from_db(engine) # This function sorts data chronologically from oldest to newest
     target_cols = ['identifiant_du_site_de_comptage']
     numeric_cols = [col for col in feature_names if col not in target_cols]
     # Préprocesseur
     preprocessor = make_preprocessor(target_cols, numeric_cols)
 
+    # Model hyperparameters
     model_params = {
         "n_estimators" : 500, 
         "learning_rate" : 0.05,
