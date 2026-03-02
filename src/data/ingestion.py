@@ -9,7 +9,7 @@ from data.preprocessing import coerce_velib_types, standardize_columns
 # from db.db import ensure_velib_raw_schema
 from utils.config import forecast_weather_api_url, historical_weather_api_url, velib_api_url, csv_url, table_name
 import tempfile
-from utils.utils import get_max_date
+from utils.utils import get_max_date, insert_on_conflict_do_nothing
 from sqlalchemy import Engine
 import json
 
@@ -254,18 +254,32 @@ def update_velib(engine: Engine):
     # df = fetch_velib_data(start_date=start_date, end_date=end_date)
     df = fetch_velib_range_by_day(start_date=start_date, end_date=end_date)
     if "coordonnees_geographiques" in df.columns:
+    #     df["coordonnees_geographiques"] = df["coordonnees_geographiques"].apply(
+    #         lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, dict) else v
+    #     ) # Convert dict to JSON string for storage in SQL database, while ensuring non-ASCII characters (e.g. accents) are preserved correctly. This is necessary because the raw API returns coordinates as a dict like {"latitude": 48.8575, "longitude": 2.3514}, but we want to store it as a string in the database.
+    # # We will parse it back to dict and split it into latitude and longitude in preprocessing step when needed.
         df["coordonnees_geographiques"] = df["coordonnees_geographiques"].apply(
-            lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, dict) else v
-        ) # Convert dict to JSON string for storage in SQL database, while ensuring non-ASCII characters (e.g. accents) are preserved correctly. This is necessary because the raw API returns coordinates as a dict like {"latitude": 48.8575, "longitude": 2.3514}, but we want to store it as a string in the database.
-    # We will parse it back to dict and split it into latitude and longitude in preprocessing step when needed.
+            lambda v: f"{v['lat']},{v['lon']}" if isinstance(v, dict) else v
+        ) # Convert dict to "lat,lon" string format for storage in SQL database. This is a simpler alternative to JSON string and is sufficient for our use case since we only have latitude and longitude. We can parse it back to dict or separate lat/lon in preprocessing step when needed.
     print(df.head())
 
     if df.empty:
         print("No new Velib data.")
         return
 
-    df.to_sql("velib_raw", engine, if_exists="append", index=False, method="multi", chunksize=2000)
-    print(f"✅ Inserted {len(df)} Velib rows.")
+    # df.to_sql("velib_raw", engine, if_exists="append", index=False, method="multi", chunksize=2000)
+    # print(f"✅ Inserted {len(df)} Velib rows.")
+
+    df = coerce_velib_types(df)
+    # Drop rows with missing key columns (cannot be used for training/features)
+    before = len(df)
+    df = df.dropna(subset=["identifiant_du_site_de_comptage", "date_et_heure_de_comptage"])
+    dropped = before - len(df)
+    if dropped:
+        print(f"Dropped {dropped} rows with missing station_id or datetime.", flush=True)
+    inserted = insert_on_conflict_do_nothing(engine, df)
+    print(f"✅ Inserted {inserted} new Velib rows (after deduplication).")
+    
 
 
 # -------------------------------

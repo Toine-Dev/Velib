@@ -42,49 +42,49 @@ if __name__ == "__main__":
     }
 
 
-# Optional: make an experiment name configurable
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT_NAME", "velib_forecast")
+    # Optional: make an experiment name configurable
+    MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+    EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT_NAME", "velib_forecast")
+    MODEL_POINTER_DB_URL = os.getenv("MODEL_POINTER_DB_URL")
+    if not MODEL_POINTER_DB_URL:
+        raise RuntimeError("MODEL_POINTER_DB_URL is not set")
 
-mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-mlflow.set_experiment(EXPERIMENT)
+    pointer_engine = create_engine(MODEL_POINTER_DB_URL)
 
-with mlflow.start_run() as run:
-    pipeline, metrics = train_final_model(processed_df[feature_names], processed_df['comptage_horaire'], model_params, target_cols, numeric_cols, test_size_ratio=0.1)
-    # save_model(pipeline)
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(EXPERIMENT)
 
-    # Log params/metrics
-    mlflow.log_params(model_params)
-    mlflow.log_metrics(metrics)
+    with mlflow.start_run() as run:
+        pipeline, metrics = train_final_model(processed_df[feature_names], processed_df['comptage_horaire'], model_params, target_cols, numeric_cols, test_size_ratio=0.1)
+        # save_model(pipeline)
 
-    # Log the full sklearn pipeline as the model artifact
-    mlflow.sklearn.log_model(pipeline, artifact_path="model")
+        # Log params/metrics
+        mlflow.log_params(model_params)
+        mlflow.log_metrics(metrics)
 
-    print("MLflow run_id:", run.info.run_id)
-    
-    from models.model_pointer import set_model_pointer   # adjust import path to your project
-    # or: from src.models.model_pointer import set_model_pointer
+        # Log the full sklearn pipeline as the model artifact
+        mlflow.sklearn.log_model(pipeline, artifact_path="model")
 
-    run_id = run.info.run_id
-    model_uri = f"runs:/{run_id}/model"
+        print("MLflow run_id:", run.info.run_id)
+        
+        from models.model_pointer import set_model_pointer   # adjust import path to your project
+        # or: from src.models.model_pointer import set_model_pointer
 
-    set_model_pointer(
-        engine=engine,                  # your SQLAlchemy engine
-        name="production",              # convention
-        run_id=run_id,
-        model_uri=model_uri,
-        metrics=metrics,
-    )
+        run_id = run.info.run_id
+        model_uri = f"runs:/{run_id}/model"
 
-    print("✅ Production model pointer set to:", model_uri)
+        set_model_pointer(
+            engine=pointer_engine,          # your SQLAlchemy engine
+            name="production",              # convention
+            run_id=run_id,
+            model_uri=model_uri,
+            metrics=metrics,
+        )
 
-    print(f"R2 Score: {metrics['R2']}")
+        print("✅ Production model pointer set to:", model_uri)
 
-    # with open("metrics.json", "w") as f:
-    #     json.dump(metrics, f)
+        print(f"R2 Score: {metrics['R2']}")
+        print("Pipeline complete.")
 
-
-
-
-
-
+        # with open("metrics.json", "w") as f:
+        #     json.dump(metrics, f)

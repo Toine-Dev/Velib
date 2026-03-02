@@ -9,6 +9,10 @@ from sqlalchemy.exc import OperationalError
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
+from sqlalchemy import text
+
+from utils.utils import insert_on_conflict_do_nothing
+
 
 
 # ==============================
@@ -40,11 +44,11 @@ def ensure_velib_raw_schema(engine):
             ON velib_raw (identifiant_du_site_de_comptage);
         """))
 
-        # # Optional: prevent duplicates (choose a key that matches your data reality)
-        # conn.execute(text("""
-        #     CREATE UNIQUE INDEX IF NOT EXISTS uq_velib_station_time
-        #     ON velib_raw (identifiant_du_site_de_comptage, date_et_heure_de_comptage);
-        # """))
+        # Optional: prevent duplicates (choose a key that matches your data reality)
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_velib_station_time
+            ON velib_raw (identifiant_du_site_de_comptage, date_et_heure_de_comptage);
+        """))
     print("Schema ensured.", flush=True)
 
 
@@ -144,8 +148,8 @@ def download_and_insert_in_chunks(engine, chunksize=50_000):
 
         for i, chunk in enumerate(chunk_iter, start=1):
             rows = len(chunk)
-            total_rows += rows
-            print(f"Inserting chunk {i} with {rows} rows (total so far: {total_rows})", flush=True)
+            
+            print(f"Inserting chunk {i} with at most {rows} rows in it assuming no duplicates.", flush=True)
 
             # 2) Standardize columns (your existing function)
             chunk = standardize_columns(chunk)
@@ -159,17 +163,27 @@ def download_and_insert_in_chunks(engine, chunksize=50_000):
 
             # 4) Coerce types so they match the table schema
             chunk = coerce_velib_types(chunk)
-
+            # Drop rows with missing key columns (cannot be used for training/features)
+            before = len(chunk)
+            chunk = chunk.dropna(subset=["identifiant_du_site_de_comptage", "date_et_heure_de_comptage"])
+            dropped = before - len(chunk)
+            if dropped:
+                print(f"Dropped {dropped} rows with missing station_id or datetime in chunk {i}", flush=True)
+                
             # 5) Append only (do not replace)
             # insert_velib_on_conflict_do_nothing(chunk)
-            chunk.to_sql(
-                "velib_raw",
-                engine,
-                if_exists="append",
-                index=False,
-                method="multi",
-                chunksize=2000,
-            )
+            inserted = insert_on_conflict_do_nothing(engine, chunk)
+            print(f"Inserted {inserted} new rows for chunk {i}.", flush=True)
+            total_rows += inserted
+            print(f"Total rows inserted so far: {total_rows}.", flush=True)
+            # chunk.to_sql(
+            #     "velib_raw",
+            #     engine,
+            #     if_exists="append",
+            #     index=False,
+            #     method="multi",
+            #     chunksize=2000,
+            # )
 
         print(f"All chunks inserted successfully. Total rows inserted: {total_rows}", flush=True)
 
@@ -246,5 +260,3 @@ def main():
         return
 
     download_and_insert_in_chunks(engine)
-
-    print("Data pipeline completed successfully.")

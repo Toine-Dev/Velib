@@ -2,6 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from data.ingestion import update_velib, update_weather, update_weather_forecast
 from utils.config import database_url
+from utils.utils import delete_duplicates
 
 ### use this to delete last 3 days from TODAY of data in velib_raw to test update pipeline ####
 engine = create_engine(database_url())
@@ -57,4 +58,5 @@ if __name__ == "__main__":
     update_velib(engine)
     update_weather(engine)
     update_weather_forecast(engine)
+    # delete_duplicates(engine)
     print("✅ Pipeline complete.")
