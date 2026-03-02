@@ -5,7 +5,8 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 import os
-from data.preprocessing import standardize_columns
+from data.preprocessing import coerce_velib_types, standardize_columns
+# from db.db import ensure_velib_raw_schema
 from utils.config import forecast_weather_api_url, historical_weather_api_url, velib_api_url, csv_url, table_name
 import tempfile
 from utils.utils import get_max_date
@@ -41,13 +42,13 @@ import json
 #     "mois_annee_comptage": "mois_annee_comptage"
 # }
 col_map = {
-    "id_compteur": "identifiant_du_compteur",
-    "nom_compteur": "nom_du_compteur",
+    # "id_compteur": "identifiant_du_compteur",
+    # "nom_compteur": "nom_du_compteur",
     "id": "identifiant_du_site_de_comptage",
     "name": "nom_du_site_de_comptage",
     "sum_counts": "comptage_horaire",
     "date": "date_et_heure_de_comptage",
-    "coordinates": "coordonnées_géographiques",
+    "coordinates": "coordonnees_geographiques",
 }
 
 
@@ -113,7 +114,7 @@ def fetch_velib_data(
             "where": where_clause,
             "limit": limit,
             "offset": offset,
-            "select": "id_compteur, nom_compteur, id, name, sum_counts, date, coordinates" # To avoid fetching unnecessary columns and reduce memory usage
+            "select": "id,name,sum_counts,date,coordinates" # To avoid fetching unnecessary columns and reduce memory usage
         }
 
         response = requests.get(velib_api_url(), params=params, timeout=10)
@@ -252,8 +253,8 @@ def update_velib(engine: Engine):
 
     # df = fetch_velib_data(start_date=start_date, end_date=end_date)
     df = fetch_velib_range_by_day(start_date=start_date, end_date=end_date)
-    if "coordonnées_géographiques" in df.columns:
-        df["coordonnées_géographiques"] = df["coordonnées_géographiques"].apply(
+    if "coordonnees_geographiques" in df.columns:
+        df["coordonnees_geographiques"] = df["coordonnees_geographiques"].apply(
             lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, dict) else v
         ) # Convert dict to JSON string for storage in SQL database, while ensuring non-ASCII characters (e.g. accents) are preserved correctly. This is necessary because the raw API returns coordinates as a dict like {"latitude": 48.8575, "longitude": 2.3514}, but we want to store it as a string in the database.
     # We will parse it back to dict and split it into latitude and longitude in preprocessing step when needed.
@@ -423,15 +424,19 @@ def _download_to_tempfile(url: str, *, retries: int = 3, timeout=(5, 120)) -> st
 
     for attempt in range(1, retries + 1):
         try:
+            print(f"Attempting to download CSV (attempt {attempt}/{retries})...")
             with requests.get(url, stream=True, timeout=timeout) as r:
                 r.raise_for_status()
 
                 tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+                print(f"Downloading CSV to temporary file {tmp.name} ...")
                 try:
+                    print("Streaming download...")
                     for chunk in r.iter_content(chunk_size=1024 * 1024):
                         if chunk:
                             tmp.write(chunk)
                     tmp.flush()
+                    print("Download completed successfully.")
                     return tmp.name
                 finally:
                     tmp.close()
@@ -445,44 +450,109 @@ def _download_to_tempfile(url: str, *, retries: int = 3, timeout=(5, 120)) -> st
     raise RuntimeError(f"Failed to download CSV after {retries} attempts: {last_err}")
 
 
-def download_and_insert_in_chunks(engine, chunksize=50_000):
-    url = csv_url()
-    print(f"Downloading CSV from {url} ...", flush=True)
+# def download_and_insert_in_chunks(engine, chunksize=50_000):
+#     url = csv_url()
+#     print(f"Downloading CSV from {url} ...", flush=True)
 
-    csv_path = _download_to_tempfile(url, retries=4, timeout=(5, 180))
+#     csv_path = _download_to_tempfile(url, retries=4, timeout=(5, 180))
 
-    try:
-        print(f"Reading chunks from {csv_path} ...", flush=True)
-        chunk_iter = pd.read_csv(csv_path, sep=";", chunksize=chunksize, usecols=["Identifiant du compteur","Nom du compteur","Identifiant du site de comptage",
-                                                                                  "Nom du site de comptage","Comptage horaire","Date et heure de comptage", 
-                                                                                  "Coordonnées géographiques"])
+#     try:
+#         print(f"Reading chunks from {csv_path} ...", flush=True)
+#         chunk_iter = pd.read_csv(csv_path, sep=";", chunksize=chunksize, usecols=["Identifiant du site de comptage",
+#                                                                                   "Nom du site de comptage","Comptage horaire","Date et heure de comptage", 
+#                                                                                   "Coordonnées géographiques"])
 
-        first_chunk = True
-        total_rows = 0
+#         first_chunk = True
+#         total_rows = 0
 
-        for i, chunk in enumerate(chunk_iter, start=1):
-            rows = len(chunk)
-            total_rows += rows
-            print(f"Inserting chunk {i} with {rows} rows (total so far: {total_rows})", flush=True)
+#         for i, chunk in enumerate(chunk_iter, start=1):
+#             rows = len(chunk)
+#             total_rows += rows
+#             print(f"Inserting chunk {i} with {rows} rows (total so far: {total_rows})", flush=True)
 
-            chunk = standardize_columns(chunk)
+#             chunk = standardize_columns(chunk)
 
-            chunk.to_sql(
-                table_name(),
-                engine,
-                if_exists="replace" if first_chunk else "append",
-                index=False,
-                method="multi",        # usually faster
-                chunksize=2000         # controls INSERT batching, independent of read chunksize
-            )
+#             chunk.to_sql(
+#                 table_name(),
+#                 engine,
+#                 if_exists="replace" if first_chunk else "append",
+#                 index=False,
+#                 method="multi",        # usually faster
+#                 chunksize=2000         # controls INSERT batching, independent of read chunksize
+#             )
 
-            first_chunk = False
+#             first_chunk = False
 
-        print(f"All chunks inserted successfully. Total rows inserted: {total_rows}", flush=True)
+#         print(f"All chunks inserted successfully. Total rows inserted: {total_rows}", flush=True)
 
-    finally:
-        # Clean up temp file
-        try:
-            os.remove(csv_path)
-        except OSError:
-            pass
+#     finally:
+#         # Clean up temp file
+#         try:
+#             os.remove(csv_path)
+#         except OSError:
+#             pass
+
+# import os
+# import pandas as pd
+
+# def download_and_insert_in_chunks(engine, chunksize=50_000):
+#     url = csv_url()
+#     print(f"Downloading CSV from {url} ...", flush=True)
+
+#     # 1) Ensure schema exists with correct types
+#     ensure_velib_raw_schema(engine)
+
+#     csv_path = _download_to_tempfile(url, retries=4, timeout=(5, 180))
+
+#     try:
+#         print(f"Reading chunks from {csv_path} ...", flush=True)
+
+#         chunk_iter = pd.read_csv(
+#             csv_path,
+#             sep=";",
+#             chunksize=chunksize,
+#             usecols=[
+#                 "Identifiant du site de comptage",
+#                 "Nom du site de comptage",
+#                 "Comptage horaire",
+#                 "Date et heure de comptage",
+#                 "Coordonnées géographiques",
+#             ],
+#         )
+
+#         total_rows = 0
+
+#         for i, chunk in enumerate(chunk_iter, start=1):
+#             rows = len(chunk)
+#             total_rows += rows
+#             print(f"Inserting chunk {i} with {rows} rows (total so far: {total_rows})", flush=True)
+
+#             # 2) Standardize columns (your existing function)
+#             chunk = standardize_columns(chunk)
+
+#             # 3) Rename the coordinates column to match DB schema
+#             # After standardize_columns, it will likely be "coordonnées_géographiques" (still accented)
+#             # Normalize it once here:
+#             if "coordonnées_géographiques" in chunk.columns:
+#                 chunk = chunk.rename(columns={"coordonnées_géographiques": "coordonnees_geographiques"})
+
+#             # 4) Coerce types so they match the table schema
+#             chunk = coerce_velib_types(chunk)
+
+#             # 5) Append only (do not replace)
+#             chunk.to_sql(
+#                 "velib_raw",
+#                 engine,
+#                 if_exists="append",
+#                 index=False,
+#                 method="multi",
+#                 chunksize=2000,
+#             )
+
+#         print(f"All chunks inserted successfully. Total rows inserted: {total_rows}", flush=True)
+
+#     finally:
+#         try:
+#             os.remove(csv_path)
+#         except OSError:
+#             pass

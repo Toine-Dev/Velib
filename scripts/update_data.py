@@ -3,18 +3,18 @@ from sqlalchemy import text
 from data.ingestion import update_velib, update_weather, update_weather_forecast
 from utils.config import database_url
 
-### use this to delete last 10 days from TODAY of data in velib_raw to test update pipeline ####
+### use this to delete last 3 days from TODAY of data in velib_raw to test update pipeline ####
 engine = create_engine(database_url())
 
 TABLE_NAME = "velib_raw"
 
-# Compute the cutoff (10 days ago from now)
+# Compute the cutoff (3 days ago from now)
 with engine.begin() as conn:
     result = conn.execute(
         text("""
             DELETE FROM velib_raw
             WHERE date_et_heure_de_comptage::timestamptz
-                  >= NOW() - INTERVAL '10 days'
+                  >= NOW() - INTERVAL '3 days'
         """)
     )
     print(f"Deleted {result.rowcount} rows")

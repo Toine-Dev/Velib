@@ -12,6 +12,28 @@ def standardize_columns(df):
     ]
     return df
 
+def coerce_velib_types(df: pd.DataFrame) -> pd.DataFrame:
+    # Station id: may come as float/string; coerce safely
+    df["identifiant_du_site_de_comptage"] = pd.to_numeric(
+        df["identifiant_du_site_de_comptage"], errors="coerce"
+    ).astype("Int64")  # pandas nullable integer
+
+    # Counts: integers
+    df["comptage_horaire"] = pd.to_numeric(
+        df["comptage_horaire"], errors="coerce"
+    ).astype("Int64")
+
+    # Datetime: parse
+    df["date_et_heure_de_comptage"] = pd.to_datetime(
+        df["date_et_heure_de_comptage"], errors="coerce", utc=False
+    )
+
+    # Coordinates: keep as text
+    if "coordonnees_geographiques" in df.columns:
+        df["coordonnees_geographiques"] = df["coordonnees_geographiques"].astype(str)
+
+    return df
+
 # Function to determine the season from a date
 def get_season_from_date(date):
     # Ensure date is timezone-aware, if not, assume UTC
@@ -168,7 +190,7 @@ def preprocess_velib_data(df):
     # df["longitude"] = coords[1].astype(float)
 
     # Alternative parsing of coordinates if they are stored as JSON strings (e.g. '{"lat": 48.8575, "lon": 2.3514}')
-    coords = df["coordonnées_géographiques"].apply(
+    coords = df["coordonnees_geographiques"].apply(
         lambda s: json.loads(s) if isinstance(s, str) and s.strip().startswith("{") else {}
     )
 
@@ -201,9 +223,9 @@ def preprocess_merged_data(df):
     #                                     "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", "rain",
     #                                     "wind_speed_10m", 'lien_vers_photo_du_site_de_comptage', 'id_photos',
     #                                     'test_lien_vers_photos_du_site_de_comptage_', 'id_photo_1', 'url_sites', 'type_dimage',
-    #                                     "coordonnées_géographiques"])
-    df = df.drop(columns=["latitude", "longitude", "identifiant_du_compteur", "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", 
-                          "rain","wind_speed_10m", "coordonnées_géographiques"])
+    #                                     "coordonnees_geographiques"])
+    df = df.drop(columns=["latitude", "longitude", "nom_du_site_de_comptage", "snowfall", 
+                          "rain","wind_speed_10m", "coordonnees_geographiques"])
                                         
 
     # Ajout des features statiques et dynamiques
