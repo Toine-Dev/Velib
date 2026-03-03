@@ -55,7 +55,7 @@ def _get_velib_date_range_from_csv(path: Path) -> Tuple[Optional[str], Optional[
     )
 
     # Force UTC to avoid DST issues without altering instants
-    dates = pd.to_datetime(df["Date et heure de comptage"], utc=True)
+    dates = pd.to_datetime(df["Date et heure de comptage"])
 
     return (
         dates.min().strftime("%Y/%m/%d"),

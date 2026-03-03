@@ -4,7 +4,8 @@ import numpy as np
 
 def add_time_features(dt_index: pd.DatetimeIndex, datetime_pred: pd.Timestamp, datetime_col: str="date_et_heure_de_comptage") -> pd.DataFrame:
     df = pd.DataFrame({datetime_col: dt_index})
-    df[datetime_col] = pd.to_datetime(df[datetime_col]).dt.tz_localize(None).dt.floor('H')
+    if df[datetime_col].dt.tz is not None:
+        df[datetime_col] = pd.to_datetime(df[datetime_col]).dt.tz_localize(None).dt.floor('H')
 
     df["jour"] = df[datetime_col].dt.weekday
     df['saison'] = df[datetime_col].apply(get_season_from_date)
@@ -20,9 +21,8 @@ def add_time_features(dt_index: pd.DatetimeIndex, datetime_pred: pd.Timestamp, d
 
 def merge_weather(hours_df, df_weather):
     # Ensure time column is also timezone-naive at hourly precision for proper merge
-    df_weather['time'] = pd.to_datetime(df_weather['time'], errors='coerce').dt.tz_localize(None).dt.floor('H')
-
-    # hours_df['date_et_heure_de_comptage'] = pd.to_datetime(hours_df['date_et_heure_de_comptage']).dt.tz_localize('UTC').dt.tz_convert('Europe/Paris').dt.floor('H')
+    if df_weather["time"].dt.tz is not None:
+        df_weather['time'] = pd.to_datetime(df_weather['time'], errors='coerce').dt.tz_localize(None).dt.floor('H')
 
     df = pd.merge(hours_df, df_weather, how="left",
                             left_on="date_et_heure_de_comptage",
@@ -122,29 +122,32 @@ def recursive_forecast(cartesian_df, history_dict, pipeline, feature_names, site
 
 
 # Function to determine the season from a date
-def get_season_from_date(date):
-    # Ensure date is timezone-aware, if not, assume UTC
-    if date.tz is None:
-        date = pd.Timestamp(date, tz='UTC')
-    
-    year = date.year
-    # Create timezone-aware seasonal boundary dates
-    spring = pd.Timestamp(f'{year}-03-20', tz='UTC')
-    summer = pd.Timestamp(f'{year}-06-21', tz='UTC')
-    autumn = pd.Timestamp(f'{year}-09-22', tz='UTC')
-    winter = pd.Timestamp(f'{year}-12-21', tz='UTC')
+def get_season_from_date(date) -> str:
+    """
+    Determine season using local calendar date (month/day).
+    Works with tz-naive or tz-aware inputs, but always compares using tz-naive
+    clock time (no conversions, no tz attachment).
+    """
+    d = pd.Timestamp(date)
 
-    # Convert input date to UTC for comparison
-    date_utc = date.tz_convert('UTC')
+    # If tz-aware, drop tz WITHOUT converting (keeps clock time)
+    if d.tzinfo is not None:
+        d = d.tz_localize(None)
 
-    if spring <= date_utc < summer:
-        return 'spring'
-    elif summer <= date_utc < autumn:
-        return 'summer'
-    elif autumn <= date_utc < winter:
-        return 'autumn'
+    year = d.year
+    spring = pd.Timestamp(f"{year}-03-20")
+    summer = pd.Timestamp(f"{year}-06-21")
+    autumn = pd.Timestamp(f"{year}-09-22")
+    winter = pd.Timestamp(f"{year}-12-21")
+
+    if spring <= d < summer:
+        return "spring"
+    elif summer <= d < autumn:
+        return "summer"
+    elif autumn <= d < winter:
+        return "autumn"
     else:
-        return 'winter'
+        return "winter"
     
 
 def is_night(row):
@@ -255,23 +258,36 @@ def compute_site_stats(processed_df: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
 
+def _drop_tz_if_any(s: pd.Series) -> pd.Series:
+    # Works for datetime64[ns] and datetime64[ns, tz]
+    if hasattr(s.dt, "tz") and s.dt.tz is not None:
+        return s.dt.tz_localize(None)
+    return s
+
+
 def build_future_timeframe(
     start_datetime: pd.Timestamp,
     end_datetime: pd.Timestamp,
 ) -> pd.DataFrame:
+    start_dt = pd.Timestamp(start_datetime)
+    end_dt = pd.Timestamp(end_datetime)
+
+    # If tz-aware, drop tz WITHOUT converting (keeps clock time)
+    if start_dt.tzinfo is not None:
+        start_dt = start_dt.tz_localize(None)
+    if end_dt.tzinfo is not None:
+        end_dt = end_dt.tz_localize(None)
+
     future_hours = pd.date_range(
-        start=start_datetime,
-        end=end_datetime,
+        start=start_dt,
+        end=end_dt,
         freq="h",
-        inclusive="right"
+        inclusive="right",
     )
 
     df = pd.DataFrame({"date_et_heure_de_comptage": future_hours})
-    df["date_et_heure_de_comptage"] = (
-        pd.to_datetime(df["date_et_heure_de_comptage"])
-        .dt.tz_localize(None)
-        .dt.floor("H")
-    )
+    df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"], errors="coerce")
+    df["date_et_heure_de_comptage"] = _drop_tz_if_any(df["date_et_heure_de_comptage"]).dt.floor("h")
 
     return df
 
@@ -281,37 +297,49 @@ def build_future_features(
     start_datetime: pd.Timestamp,
     end_datetime: pd.Timestamp,
 ) -> pd.DataFrame:
+    # timeframe is already tz-safe in your updated build_future_timeframe
     df = build_future_timeframe(start_datetime, end_datetime)
 
+    # If your add_time_features is safe + tz-free, keep it.
+    # Otherwise, you can drop it and rely on the explicit features below.
     df = add_time_features(df, "date_et_heure_de_comptage")
+
+    # These should now be tz-free implementations (like we rewrote for season)
     df["saison"] = df["date_et_heure_de_comptage"].apply(get_season_from_date)
     df["nuit"] = df.apply(is_night, axis=1)
     df["vacances"] = df["date_et_heure_de_comptage"].apply(is_vacances)
     df["heure_de_pointe"] = df["date_et_heure_de_comptage"].apply(is_rush_hour)
 
-    # merge weather
+    # ---- merge weather (tz-safe)
     weather = weather_forecast_df.copy()
-    weather["time"] = (
-        pd.to_datetime(weather["time"])
-        .dt.tz_localize(None)
-        .dt.floor("H")
-    )
+    weather["time"] = pd.to_datetime(weather["time"], errors="coerce")
+    weather["time"] = _drop_tz_if_any(weather["time"]).dt.floor("h")
+
+    # also ensure df key is hourly naive
+    df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"], errors="coerce").dt.floor("h")
 
     df = df.merge(
         weather,
         left_on="date_et_heure_de_comptage",
         right_on="time",
-        how="left"
+        how="left",
     ).drop(columns=["time"])
 
+    # Convert weather numeric -> boolean features (pluie/neige/vent) + keep apparent_temperature
     df = add_weather_features(df)
+
+    # Cyclic features (make sure this creates jour/mois/heure/saison sin/cos,
+    # because your DB expects mois_sin/cos and saison_sin/cos too)
     df = add_cyclic_features(df)
 
-    # cross join with sites
+    # If add_weather_features leaves behind raw columns, drop them to match processed schema
+    df = df.drop(columns=["rain", "snowfall", "wind_speed_10m"], errors="ignore")
+
+    # ---- cross join with sites
     sites = processed_df[["identifiant_du_site_de_comptage"]].drop_duplicates()
     df = sites.merge(df, how="cross")
 
-    # add site stats
+    # ---- add site stats
     site_stats = compute_site_stats(processed_df)
     df = df.merge(site_stats, on="identifiant_du_site_de_comptage", how="left")
 

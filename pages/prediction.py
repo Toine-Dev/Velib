@@ -64,7 +64,8 @@ def show_prediction():
     pred_date = col1.date_input("Sélectionnez la date", min_value=start_date)
     pred_time = col2.time_input("Sélectionnez l'heure")
     # The tz_localize method does not convert the time, it just assigns the timezone.
-    pred_datetime = pd.Timestamp.combine(pred_date, pred_time).tz_localize(start_datetime.tz)
+    # pred_datetime = pd.Timestamp.combine(pred_date, pred_time).tz_localize(start_datetime.tz)
+    pred_datetime = pd.Timestamp.combine(pred_date, pred_time)
 
     if pred_datetime <= start_datetime or pred_datetime > (start_datetime + timedelta(hours=48)):
         st.error(f"Veuillez choisir une combinaison date et heure STRICTEMENT après {start_datetime} mais pas plus de 48 heures après cette dernière.")

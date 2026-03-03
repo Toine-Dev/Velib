@@ -7,12 +7,36 @@ from zoneinfo import ZoneInfo
 import os
 from data.preprocessing import coerce_velib_types, standardize_columns
 # from db.db import ensure_velib_raw_schema
+from models.features import _drop_tz_if_any
 from utils.config import forecast_weather_api_url, historical_weather_api_url, velib_api_url, csv_url, table_name
 import tempfile
 from utils.utils import get_max_date, insert_on_conflict_do_nothing
-from sqlalchemy import Engine
+from sqlalchemy import DateTime, Engine, Float, text
 import json
 
+
+def ensure_weather_raw_schema(engine: Engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS weather_raw (
+                time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                rain DOUBLE PRECISION,
+                snowfall DOUBLE PRECISION,
+                apparent_temperature DOUBLE PRECISION,
+                wind_speed_10m DOUBLE PRECISION
+            );
+        """))
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS weather_forecast_raw (
+                time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                rain DOUBLE PRECISION,
+                snowfall DOUBLE PRECISION,
+                apparent_temperature DOUBLE PRECISION,
+                wind_speed_10m DOUBLE PRECISION
+            );
+        """))
 
 # ==============================
 # Configuration
@@ -103,6 +127,7 @@ def fetch_velib_data(
 
     offset = 0
     all_records: List[Dict] = []
+    timezone = "Europe/Paris"  # Velib data is in Paris local time, so we use that timezone for any date parsing/handling to ensure consistency with the raw dataset semantics. We will convert to UTC or naive timestamps as needed later in the pipeline, but using the correct local timezone here is crucial to avoid off-by-one-day errors around midnight and daylight saving time changes.
 
     while True:
         # params = {
@@ -114,6 +139,7 @@ def fetch_velib_data(
             "where": where_clause,
             "limit": limit,
             "offset": offset,
+            "timezone": timezone, # Ensure API returns timestamps in correct timezone (if supported by API) to avoid timezone-related bugs. If API does not support this parameter, we will handle timezone conversion ourselves in preprocessing step, but it's worth trying to get it right from the source if possible.
             "select": "id,name,sum_counts,date,coordinates" # To avoid fetching unnecessary columns and reduce memory usage
         }
 
@@ -139,7 +165,17 @@ def fetch_velib_data(
         time.sleep(sleep)
     
     df = pd.DataFrame(all_records).rename(columns=col_map)
+    print(df["date_et_heure_de_comptage"].dtype)
+    s = pd.to_datetime(df["date_et_heure_de_comptage"], errors="coerce")
 
+    if getattr(s.dt, "tz", None) is not None:
+        s = s.dt.tz_localize(None)
+
+    df["date_et_heure_de_comptage"] = s.dt.floor("h")
+    # if df["date_et_heure_de_comptage"].dt.tz is not None:
+    #     df["date_et_heure_de_comptage"] = (
+    #         df["date_et_heure_de_comptage"].dt.tz_localize(None)
+    # ) # Convert to naive timestamps in local timezone (Paris time) to match the semantics of the raw dataset. This is important to avoid timezone-related bugs later in the pipeline. We will handle timezone conversion to UTC or other formats as needed in preprocessing, but using consistent naive local timestamps here is a simpler approach that matches the source data semantics and avoids common pitfalls with timezone-aware timestamps in pandas.
     return df
 
 
@@ -186,13 +222,15 @@ def fetch_weather_data(
 
     if end_date is None:
         end_date = start_date
-
+    timezone = "Europe/Paris"  # Weather data should also be in Paris local time to align with Velib data semantics. We will handle timezone conversion in preprocessing step as needed, but using correct local timezone here is important to avoid timezone-related bugs.
+    
     params = {
         "latitude": latitude,
         "longitude": longitude,
         "start_date": start_date,
         "end_date": end_date,
         "hourly": "rain,snowfall,apparent_temperature,wind_speed_10m",
+        "timezone": timezone, # Ensure API returns timestamps in correct timezone (if supported by API) to avoid timezone-related bugs. If API does not support this parameter, we will handle timezone conversion ourselves in preprocessing step, but it's worth trying to get it right from the source if possible.
     }
 
     today = datetime.now(ZoneInfo("Europe/Paris")).date() # Respects daylight saving automatically (matches the semantics of raw dataset which is in Paris local time)
@@ -214,11 +252,19 @@ def fetch_weather_data(
     records = data.get("hourly", {})
 
     df_weather = pd.DataFrame(records)
+    print(df_weather["time"].dtype)
+    s = pd.to_datetime(df_weather["time"], errors="coerce")
 
-    # Clean timestamp
-    df_weather["time"] = pd.to_datetime(df_weather["time"], utc=True)
-    df_weather["time"] = df_weather["time"].dt.tz_convert(None)
+    if getattr(s.dt, "tz", None) is not None:
+        s = s.dt.tz_localize(None)
 
+    df_weather["time"] = s.dt.floor("h")
+    # # Clean timestamp
+    # if df_weather["time"].dt.tz is not None:
+    #     df_weather["time"] = (
+    #         df_weather["time"].dt.tz_localize(None)
+    # ) # Convert to naive timestamps in local timezone (Paris time) to match the semantics of the raw dataset. This is important to avoid timezone-related bugs later in the pipeline. We will handle timezone conversion to UTC or other formats as needed in preprocessing, but using consistent naive local timestamps here is a simpler approach that matches the source data semantics and avoids common pitfalls with timezone-aware timestamps in pandas.
+    
     return df_weather
 
 
@@ -288,6 +334,8 @@ def update_velib(engine: Engine):
 def update_weather(engine: Engine):
     print("🌦 Checking weather data...")
 
+    ensure_weather_raw_schema(engine)
+
     velib_min, velib_max = get_max_date("velib_raw", "date_et_heure_de_comptage")
     weather_min, weather_max = get_max_date("weather_raw", "time")
 
@@ -321,22 +369,32 @@ def update_weather(engine: Engine):
         print("No new weather data.")
         return
 
-    df.to_sql("weather_raw", engine, if_exists="append", index=False, method="multi", chunksize=2000)
+    df.to_sql(
+        "weather_raw", engine, 
+        if_exists="append", index=False, 
+        method="multi", chunksize=2000, 
+        dtype={
+        "time": DateTime(),
+        "rain": Float(),
+        "snowfall": Float(),
+        "apparent_temperature": Float(),
+        "wind_speed_10m": Float(),
+        }
+        )
+
     print(f"✅ Inserted {len(df)} weather rows.")
 
-import pandas as pd
-from sqlalchemy.engine import Engine
-from utils.utils import get_max_date
+
 
 def update_weather_forecast(engine: Engine, horizon_hours: int = 168) -> None:
     """
     Fetch and overwrite forecast weather aligned to the last available Velib timestamp.
 
-    - start_ts = MAX(velib_raw.date_et_heure_de_comptage)
-    - end_ts   = start_ts + horizon_hours
-    - Fetch weather by date window that covers [start_ts, end_ts]
-    - Filter safely with consistent timezone handling
-    - Overwrite weather_forecast_raw each run
+    Canonical time convention:
+    - All timestamps in this pipeline are tz-naive and represent Europe/Paris local clock time.
+    - Never tz_convert.
+    - Never attach tz.
+    - Only drop tz if present.
     """
     print("🌦 Updating weather forecast (aligned to last Velib timestamp)...")
 
@@ -345,34 +403,42 @@ def update_weather_forecast(engine: Engine, horizon_hours: int = 168) -> None:
         print("⚠️ velib_raw missing or empty. Skipping weather forecast update.")
         return
 
-    # Force velib max timestamp to UTC tz-aware
-    start_ts = pd.to_datetime(max_ts, utc=True, errors="coerce")
+    # Parse velib max timestamp as tz-naive Paris local time (DO NOT use utc=True)
+    start_ts = pd.to_datetime(max_ts, errors="coerce")
     if pd.isna(start_ts):
         print(f"⚠️ Could not parse max velib timestamp: {max_ts!r}. Skipping.")
         return
 
-    end_ts = start_ts + pd.Timedelta(hours=horizon_hours)
+    # If tz-aware sneaks in, drop tz WITHOUT converting (keep clock time)
+    if start_ts.tzinfo is not None:
+        start_ts = start_ts.tz_localize(None)
 
-    # Date window (no extra day buffer): just cover start/end dates
+    start_ts = start_ts.floor("h")
+    end_ts = (start_ts + pd.Timedelta(hours=horizon_hours)).floor("h")
+
     start_date = start_ts.date().isoformat()
     end_date = end_ts.date().isoformat()
 
     print(
-        f"Last velib ts: {start_ts} | "
+        f"Last velib ts (Paris-naive): {start_ts} | "
         f"fetching weather {start_date} → {end_date} | "
         f"keeping [{start_ts} → {end_ts}]"
     )
 
+    # Your fetch_weather_data should already query timezone=Europe/Paris
     df = fetch_weather_data(start_date=start_date, end_date=end_date)
     if df is None or df.empty:
         print("⚠️ No weather data returned.")
         return
 
-    # Force weather timestamps to UTC tz-aware as well
-    df["time"] = pd.to_datetime(df["time"], utc=True, errors="coerce")
-    df = df.dropna(subset=["time"])
+    # Parse weather timestamps WITHOUT utc=True; then drop tz if any
+    df["time"] = pd.to_datetime(df["time"], errors="coerce")
+    df = df.dropna(subset=["time"]).copy()
 
-    # Filter to exact horizon
+    # Drop tz if present (your helper)
+    df["time"] = _drop_tz_if_any(df["time"]).dt.floor("h")
+
+    # Filter to exact horizon (naive Paris clock time)
     df = df[(df["time"] >= start_ts) & (df["time"] <= end_ts)].copy()
     df = df.sort_values("time").drop_duplicates(subset=["time"], keep="last")
 
@@ -380,9 +446,7 @@ def update_weather_forecast(engine: Engine, horizon_hours: int = 168) -> None:
         print("⚠️ Weather data returned but none overlaps desired forecast window.")
         return
 
-    # Optional: store as naive UTC timestamps (consistent with many DB schemas)
-    df["time"] = df["time"].dt.tz_convert("UTC").dt.tz_localize(None)
-
+    # At this point df["time"] is tz-naive Paris time and matches weather_forecast_raw schema
     df.to_sql(
         "weather_forecast_raw",
         engine,
@@ -394,7 +458,7 @@ def update_weather_forecast(engine: Engine, horizon_hours: int = 168) -> None:
 
     print(
         f"✅ Wrote {len(df)} rows to weather_forecast_raw "
-        f"covering {df['time'].min()} → {df['time'].max()}"
+        f"covering {df['time'].min()} → {df['time'].max()} (Paris-naive)"
     )
 
 # def download_and_insert_in_chunks(engine, chunksize=50000):

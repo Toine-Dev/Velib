@@ -1,5 +1,4 @@
 import json
-
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text
@@ -25,7 +24,7 @@ def coerce_velib_types(df: pd.DataFrame) -> pd.DataFrame:
 
     # Datetime: parse
     df["date_et_heure_de_comptage"] = pd.to_datetime(
-        df["date_et_heure_de_comptage"], errors="coerce", utc=False
+        df["date_et_heure_de_comptage"], errors="coerce"
     )
 
     # Coordinates: keep as text
@@ -35,29 +34,32 @@ def coerce_velib_types(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # Function to determine the season from a date
-def get_season_from_date(date):
-    # Ensure date is timezone-aware, if not, assume UTC
-    if date.tz is None:
-        date = pd.Timestamp(date, tz='UTC')
-    
-    year = date.year
-    # Create timezone-aware seasonal boundary dates
-    spring = pd.Timestamp(f'{year}-03-20', tz='UTC')
-    summer = pd.Timestamp(f'{year}-06-21', tz='UTC')
-    autumn = pd.Timestamp(f'{year}-09-22', tz='UTC')
-    winter = pd.Timestamp(f'{year}-12-21', tz='UTC')
+def get_season_from_date(date) -> str:
+    """
+    Determine season using local calendar date (month/day).
+    Works with tz-naive or tz-aware inputs, but always compares using tz-naive
+    clock time (no conversions, no tz attachment).
+    """
+    d = pd.Timestamp(date)
 
-    # Convert input date to UTC for comparison
-    date_utc = date.tz_convert('UTC')
+    # If tz-aware, drop tz WITHOUT converting (keeps clock time)
+    if d.tzinfo is not None:
+        d = d.tz_localize(None)
 
-    if spring <= date_utc < summer:
-        return 'spring'
-    elif summer <= date_utc < autumn:
-        return 'summer'
-    elif autumn <= date_utc < winter:
-        return 'autumn'
+    year = d.year
+    spring = pd.Timestamp(f"{year}-03-20")
+    summer = pd.Timestamp(f"{year}-06-21")
+    autumn = pd.Timestamp(f"{year}-09-22")
+    winter = pd.Timestamp(f"{year}-12-21")
+
+    if spring <= d < summer:
+        return "spring"
+    elif summer <= d < autumn:
+        return "summer"
+    elif autumn <= d < winter:
+        return "autumn"
     else:
-        return 'winter'
+        return "winter"
     
 
 def is_night(row):
@@ -171,9 +173,10 @@ def add_cyclic_features(df):
 def preprocess_velib_data(df):
     print('Preprocessing has started.')
     df = df.dropna().copy()
-    df['date_et_heure_de_comptage'] = pd.to_datetime(df['date_et_heure_de_comptage'].astype(str), errors='coerce', utc=True)
+    df['date_et_heure_de_comptage'] = pd.to_datetime(df['date_et_heure_de_comptage'].astype(str), errors='coerce')
     df = df.dropna(subset=['date_et_heure_de_comptage']).copy()
-    df['date_et_heure_de_comptage'] = df['date_et_heure_de_comptage'].dt.tz_convert(None)
+    if df["date_et_heure_de_comptage"].dt.tz is not None:
+        df['date_et_heure_de_comptage'] = df['date_et_heure_de_comptage'].dt.tz_localize(None)
 
     # Features temporelles
     df['heure'] = df['date_et_heure_de_comptage'].dt.hour
