@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy import text
-from data.ingestion import update_velib, update_weather, update_weather_forecast
+from data.ingestion import update_velib, update_weather, update_weather_forecast, upsert_velib_sites
 from utils.config import database_url
 from utils.utils import delete_duplicates
 
@@ -58,5 +58,6 @@ if __name__ == "__main__":
     update_velib(engine)
     update_weather(engine)
     update_weather_forecast(engine)
+    upsert_velib_sites(engine)
     # delete_duplicates(engine)
     print("✅ Pipeline complete.")

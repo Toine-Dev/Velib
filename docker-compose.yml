@@ -132,6 +132,36 @@ services:
       --artifacts-destination /mlflow/artifacts
 #      --default-artifact-root /mlflow/artifacts
 
+  recursive_forecast:
+    build: .
+    depends_on:
+      - db
+      - mlflow
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: velib_forecast
+      FORECAST_HOURS: "48"
+      HISTORY_WINDOW_DAYS: "30"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts   # ✅ ADD THIS
+    command: python scripts/recursive_forecast.py
+    restart: "no"
+
+  streamlit_app:
+    build: .
+    depends_on:
+      - db
+    ports:
+      - "8501:8501"
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      PYTHONPATH: /app/src
+    command: streamlit run scripts/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    volumes:
+      - .:/app
+
 volumes:
   postgres_data:
   mlflow_artifacts:

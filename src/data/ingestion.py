@@ -15,6 +15,31 @@ from sqlalchemy import DateTime, Engine, Float, text
 import json
 
 
+def upsert_velib_sites(engine: Engine) -> None:
+    stmt = text("""
+        INSERT INTO velib_sites (
+            identifiant_du_site_de_comptage,
+            nom_du_site_de_comptage,
+            latitude,
+            longitude
+        )
+        SELECT DISTINCT
+            identifiant_du_site_de_comptage,
+            nom_du_site_de_comptage,
+            NULLIF(trim(split_part(coordonnees_geographiques, ',', 1)), '')::double precision AS latitude,
+            NULLIF(trim(split_part(coordonnees_geographiques, ',', 2)), '')::double precision AS longitude
+        FROM velib_raw
+        WHERE coordonnees_geographiques IS NOT NULL
+        ON CONFLICT (identifiant_du_site_de_comptage) DO UPDATE
+        SET
+            nom_du_site_de_comptage = EXCLUDED.nom_du_site_de_comptage,
+            latitude = EXCLUDED.latitude,
+            longitude = EXCLUDED.longitude;
+    """)
+    with engine.begin() as conn:
+        conn.execute(stmt)
+
+
 def ensure_weather_raw_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("""

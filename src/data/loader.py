@@ -1,44 +1,60 @@
-from data.preprocessing import preprocess_velib_data, preprocess_weather_data, preprocess_merged_data
-import streamlit as st
+import os
 import pandas as pd
+from sqlalchemy import create_engine, text
+import streamlit as st
 
-VELIB_PATH = "comptage_velo_donnees_compteurs.csv"
-WEATHER_PATH = "weather_data.csv"
-WEATHER_FORECAST_PATH = "forecast_weather_data.csv"
+DB_URL = os.getenv("DATABASE_URL")
+
+@st.cache_resource
+def get_engine():
+    return create_engine(DB_URL)
 
 
 @st.cache_data
-def load_raw_velib_data(velib_path=VELIB_PATH):
-    df_velib = pd.read_csv(velib_path, sep=";")
-    df_velib.columns = [col.strip().replace(" ", "_").lower() for col in df_velib.columns]
-    return df_velib
+def load_raw_velib_data(limit: int | None = None):
+    engine = get_engine()
+
+    q = "SELECT * FROM velib_raw ORDER BY date_et_heure_de_comptage DESC"
+    if limit:
+        q += f" LIMIT {limit}"
+
+    df = pd.read_sql(q, engine)
+    df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"])
+    return df
+
 
 @st.cache_data
-def load_raw_weather_data(weather_path=WEATHER_PATH):
-    df_weather = pd.read_csv(weather_path)
-    return df_weather
+def load_raw_weather_data(limit: int | None = None):
+    engine = get_engine()
+
+    q = "SELECT * FROM weather_raw ORDER BY time DESC"
+    if limit:
+        q += f" LIMIT {limit}"
+
+    df = pd.read_sql(q, engine)
+    df["time"] = pd.to_datetime(df["time"])
+    return df
+
 
 @st.cache_data
-def load_processed_data(raw_velib_df, raw_weather_df):
-    processed_velib_data = preprocess_velib_data(raw_velib_df)
-    processed_weather_data = preprocess_weather_data(raw_weather_df)
-    df_merged = pd.merge(processed_velib_data, processed_weather_data, how="left", left_on="date_et_heure_de_comptage", right_on="time").drop(columns=["time"])
-    processed_df, feature_names = preprocess_merged_data(df_merged)
-    return processed_df, feature_names
+def load_processed_data():
+    engine = get_engine()
+
+    df = pd.read_sql("SELECT * FROM velib_weather_processed", engine)
+    df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"])
+
+    return df
+
 
 @st.cache_data
-def load_forecast_weather_data(weather_forecast_path=WEATHER_FORECAST_PATH):
-    df_forecast_weather = pd.read_csv(weather_forecast_path, parse_dates=['time'])
-    return df_forecast_weather
+def load_forecast_geo(selected_datetime):
+    engine = get_engine()
 
-# @st.cache_data
-# def load_all_data():
-#     raw_velib_df = load_raw_velib_data()
-#     raw_weather_df = load_raw_weather_data()
-#     processed_df, feature_names = load_processed_data(raw_velib_df, raw_weather_df)
-#     return processed_df, feature_names
+    query = text("""
+        SELECT *
+        FROM velib_forecast_geo
+        WHERE date_et_heure_de_comptage = :dt
+    """)
 
-
-# fast API
-# côté admin : gestion d'utilisateurs (suppression ou ajout), redéclencher pipeline de récupération (modelling ou data), avoir accès à un lien qui pointe vers registre MLflow pour voir les différents modèles et entraînements
-# côté client : lancer une prédiction en fonction de certaines données d'entrée (date, météo, etc.) et afficher les résultats sous forme graphique (graphiques de tendances, corrélations, etc.)
+    df = pd.read_sql(query, engine, params={"dt": selected_datetime})
+    return df
