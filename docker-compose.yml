@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: ml_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
     ports:
       - "5432:5432"
 
@@ -42,24 +43,24 @@ services:
     command: python scripts/update_data.py
     restart: "no"
 
-  update_api_debug:
-    build: .
-    profiles: ["debug"]
-    depends_on:
-      - db
-    volumes:
-      - .:/app
-    ports:
-      - "5678:5678"
-    environment:
-      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
-      PYTHONPATH: /app/src
-      PYTHONUNBUFFERED: "1"
-      VELIB_API_URL: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records
-      HISTORICAL_WEATHER_API_URL: https://archive-api.open-meteo.com/v1/archive
-      FORECAST_WEATHER_API_URL: https://api.open-meteo.com/v1/forecast
-    command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client scripts/update_data.py
-    restart: "no"
+  # update_api_debug:
+  #   build: .
+  #   profiles: ["debug"]
+  #   depends_on:
+  #     - db
+  #   volumes:
+  #     - .:/app
+  #   ports:
+  #     - "5678:5678"
+  #   environment:
+  #     DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+  #     PYTHONPATH: /app/src
+  #     PYTHONUNBUFFERED: "1"
+  #     VELIB_API_URL: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records
+  #     HISTORICAL_WEATHER_API_URL: https://archive-api.open-meteo.com/v1/archive
+  #     FORECAST_WEATHER_API_URL: https://api.open-meteo.com/v1/forecast
+  #   command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client scripts/update_data.py
+  #   restart: "no"
 
   preprocess_data:
     build: .
@@ -78,14 +79,89 @@ services:
     build: .
     depends_on:
       - db
+      - mlflow
     volumes:
       - .:/app
+      - mlflow_artifacts:/mlflow/artifacts
     environment:
       DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      MODEL_POINTER_DB_URL: postgresql://ml_user:ml_password@db:5432/mlflow_db
       PYTHONPATH: /app/src
       PYTHONUNBUFFERED: "1"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: velib_forecast
     command: python scripts/train_model.py
     restart: "no"
 
+  # mlflow:
+  #   build: .
+  #   depends_on:
+  #     - db
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - mlflow_artifacts:/mlflow/artifacts
+  #   environment:
+  #     # Store MLflow runs/params/metrics in the same Postgres instance
+  #     MLFLOW_BACKEND_STORE_URI: postgresql://ml_user:ml_password@db:5432/mlflow_db
+  #     # Store model files + artifacts on a Docker volume (persistent)
+  #     MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+  #   command: >
+  #     mlflow server
+  #     --host 0.0.0.0
+  #     --port 5000
+  #     --backend-store-uri ${MLFLOW_BACKEND_STORE_URI}
+  #     --default-artifact-root ${MLFLOW_DEFAULT_ARTIFACT_ROOT}
+  #   restart: "no"
+
+  mlflow:
+    build: .
+    depends_on:
+      - db
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql://ml_user:ml_password@db:5432/mlflow_db
+      --default-artifact-root file:/mlflow/artifacts
+      --serve-artifacts
+      --artifacts-destination /mlflow/artifacts
+#      --default-artifact-root /mlflow/artifacts
+
+  recursive_forecast:
+    build: .
+    depends_on:
+      - db
+      - mlflow
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: velib_forecast
+      FORECAST_HOURS: "48"
+      HISTORY_WINDOW_DAYS: "30"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts   # ✅ ADD THIS
+    command: python scripts/recursive_forecast.py
+    restart: "no"
+
+  streamlit_app:
+    build: .
+    depends_on:
+      - db
+    ports:
+      - "8501:8501"
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      PYTHONPATH: /app/src
+    command: streamlit run scripts/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    volumes:
+      - .:/app
+
 volumes:
   postgres_data:
+  mlflow_artifacts:

@@ -30,7 +30,7 @@ def load_and_preprocess_weather(engine: Engine) -> pd.DataFrame:
     processed_weather_data = preprocess_weather_data(raw_weather_df)
 
     # Safety: ensure datetime and timezone consistency
-    processed_weather_data[WEATHER_TIME_COL] = pd.to_datetime(processed_weather_data[WEATHER_TIME_COL], utc=True, errors="coerce")
+    processed_weather_data[WEATHER_TIME_COL] = pd.to_datetime(processed_weather_data[WEATHER_TIME_COL], errors="coerce")
 
     # Optional: drop duplicates on time to make merge deterministic (keep last)
     processed_weather_data = (
@@ -105,7 +105,7 @@ def run_site_by_site_etl(
         processed_velib_data = preprocess_velib_data(raw_velib_df)
 
         # Safety: ensure datetime and timezone consistency
-        processed_velib_data[VELIB_TIME_COL] = pd.to_datetime(processed_velib_data[VELIB_TIME_COL], utc=True, errors="coerce")
+        processed_velib_data[VELIB_TIME_COL] = pd.to_datetime(processed_velib_data[VELIB_TIME_COL], errors="coerce")
         processed_velib_data = processed_velib_data.dropna(subset=[VELIB_TIME_COL])
 
         df_merged = (

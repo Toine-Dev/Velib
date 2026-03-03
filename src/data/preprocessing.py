@@ -1,5 +1,4 @@
 import json
-
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text
@@ -12,30 +11,55 @@ def standardize_columns(df):
     ]
     return df
 
+def coerce_velib_types(df: pd.DataFrame) -> pd.DataFrame:
+    # Station id: may come as float/string; coerce safely
+    df["identifiant_du_site_de_comptage"] = pd.to_numeric(
+        df["identifiant_du_site_de_comptage"], errors="coerce"
+    ).astype("Int64")  # pandas nullable integer
+
+    # Counts: integers
+    df["comptage_horaire"] = pd.to_numeric(
+        df["comptage_horaire"], errors="coerce"
+    ).astype("Int64")
+
+    # Datetime: parse
+    df["date_et_heure_de_comptage"] = pd.to_datetime(
+        df["date_et_heure_de_comptage"], errors="coerce"
+    )
+
+    # Coordinates: keep as text
+    if "coordonnees_geographiques" in df.columns:
+        df["coordonnees_geographiques"] = df["coordonnees_geographiques"].astype(str)
+
+    return df
+
 # Function to determine the season from a date
-def get_season_from_date(date):
-    # Ensure date is timezone-aware, if not, assume UTC
-    if date.tz is None:
-        date = pd.Timestamp(date, tz='UTC')
-    
-    year = date.year
-    # Create timezone-aware seasonal boundary dates
-    spring = pd.Timestamp(f'{year}-03-20', tz='UTC')
-    summer = pd.Timestamp(f'{year}-06-21', tz='UTC')
-    autumn = pd.Timestamp(f'{year}-09-22', tz='UTC')
-    winter = pd.Timestamp(f'{year}-12-21', tz='UTC')
+def get_season_from_date(date) -> str:
+    """
+    Determine season using local calendar date (month/day).
+    Works with tz-naive or tz-aware inputs, but always compares using tz-naive
+    clock time (no conversions, no tz attachment).
+    """
+    d = pd.Timestamp(date)
 
-    # Convert input date to UTC for comparison
-    date_utc = date.tz_convert('UTC')
+    # If tz-aware, drop tz WITHOUT converting (keeps clock time)
+    if d.tzinfo is not None:
+        d = d.tz_localize(None)
 
-    if spring <= date_utc < summer:
-        return 'spring'
-    elif summer <= date_utc < autumn:
-        return 'summer'
-    elif autumn <= date_utc < winter:
-        return 'autumn'
+    year = d.year
+    spring = pd.Timestamp(f"{year}-03-20")
+    summer = pd.Timestamp(f"{year}-06-21")
+    autumn = pd.Timestamp(f"{year}-09-22")
+    winter = pd.Timestamp(f"{year}-12-21")
+
+    if spring <= d < summer:
+        return "spring"
+    elif summer <= d < autumn:
+        return "summer"
+    elif autumn <= d < winter:
+        return "autumn"
     else:
-        return 'winter'
+        return "winter"
     
 
 def is_night(row):
@@ -149,9 +173,10 @@ def add_cyclic_features(df):
 def preprocess_velib_data(df):
     print('Preprocessing has started.')
     df = df.dropna().copy()
-    df['date_et_heure_de_comptage'] = pd.to_datetime(df['date_et_heure_de_comptage'].astype(str), errors='coerce', utc=True)
+    df['date_et_heure_de_comptage'] = pd.to_datetime(df['date_et_heure_de_comptage'].astype(str), errors='coerce')
     df = df.dropna(subset=['date_et_heure_de_comptage']).copy()
-    df['date_et_heure_de_comptage'] = df['date_et_heure_de_comptage'].dt.tz_convert(None)
+    if df["date_et_heure_de_comptage"].dt.tz is not None:
+        df['date_et_heure_de_comptage'] = df['date_et_heure_de_comptage'].dt.tz_localize(None)
 
     # Features temporelles
     df['heure'] = df['date_et_heure_de_comptage'].dt.hour
@@ -168,7 +193,7 @@ def preprocess_velib_data(df):
     # df["longitude"] = coords[1].astype(float)
 
     # Alternative parsing of coordinates if they are stored as JSON strings (e.g. '{"lat": 48.8575, "lon": 2.3514}')
-    coords = df["coordonnées_géographiques"].apply(
+    coords = df["coordonnees_geographiques"].apply(
         lambda s: json.loads(s) if isinstance(s, str) and s.strip().startswith("{") else {}
     )
 
@@ -201,9 +226,9 @@ def preprocess_merged_data(df):
     #                                     "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", "rain",
     #                                     "wind_speed_10m", 'lien_vers_photo_du_site_de_comptage', 'id_photos',
     #                                     'test_lien_vers_photos_du_site_de_comptage_', 'id_photo_1', 'url_sites', 'type_dimage',
-    #                                     "coordonnées_géographiques"])
-    df = df.drop(columns=["latitude", "longitude", "identifiant_du_compteur", "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", 
-                          "rain","wind_speed_10m", "coordonnées_géographiques"])
+    #                                     "coordonnees_geographiques"])
+    df = df.drop(columns=["latitude", "longitude", "nom_du_site_de_comptage", "snowfall", 
+                          "rain","wind_speed_10m", "coordonnees_geographiques"])
                                         
 
     # Ajout des features statiques et dynamiques
