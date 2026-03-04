@@ -163,10 +163,10 @@ def build_future_feature_frame(start_dt: pd.Timestamp, end_dt: pd.Timestamp, wea
     # keep only expected numeric weather
     df["apparent_temperature"] = df["apparent_temperature"].astype(float)
 
-    df["mean"] = np.nan  # placeholder for site mean (not known at this stage)
-    df["std"] = np.nan   # placeholder for site std (not known at this stage)
-    df["max"] = np.nan   # placeholder for site max (not known at this
-    df["min"] = np.nan   # placeholder for site min (not known at this stage)
+    # df["mean"] = np.nan  # placeholder for site mean (not known at this stage)
+    # df["std"] = np.nan   # placeholder for site std (not known at this stage)
+    # df["max"] = np.nan   # placeholder for site max (not known at this
+    # df["min"] = np.nan   # placeholder for site min (not known at this stage)
 
     # drop raw numeric cols not used by model (your processed schema doesn’t include them)
     df = df.drop(columns=["rain", "snowfall", "wind_speed_10m"], errors="ignore")
@@ -251,25 +251,39 @@ def main():
     future_feats = build_future_feature_frame(start_dt, end_dt, weather_fc)
     print("Future feature frame for forecast horizon has columns:", future_feats.columns.tolist())
 
+    
+    # sites = processed[["identifiant_du_site_de_comptage"]].drop_duplicates()
+    # print("sites DataFrame has columns:", sites.columns.tolist())
+    # cartesian = sites.merge(future_feats, how="cross")
+    # print("cartesian DataFrame after cross join has columns:", cartesian.columns.tolist())
+
+    
     # 5) cross join with sites
+    site_stats = pd.read_sql(
+    "SELECT identifiant_du_site_de_comptage, mean, std, min, max FROM site_features",
+    engine
+)
     sites = processed[["identifiant_du_site_de_comptage"]].drop_duplicates()
-    print("sites DataFrame has columns:", sites.columns.tolist())
+    sites = sites.merge(site_stats, on="identifiant_du_site_de_comptage", how="left")
     cartesian = sites.merge(future_feats, how="cross")
-    print("cartesian DataFrame after cross join has columns:", cartesian.columns.tolist())
+
+    # 6) history dict + site stats
+    history_dict = build_history(processed, sites)
+
 
     # placeholders for lags (will be filled per-row in recursion)
     for c in ["lag_1", "lag_24", "rolling_mean_24"]:
         if c not in cartesian.columns:
             cartesian[c] = np.nan
 
-    # 6) history dict + site stats
-    history_dict = build_history(processed, sites)
-    site_stats = pd.read_sql("SELECT mean, std, max, min FROM site_features", engine)
-
     # 7) model + feature list (exactly: processed columns minus target)
     model, model_uri = load_latest_model()
     feature_names = [c for c in processed.columns if c != "comptage_horaire"]
     print(f"Using model from {model_uri} with features: {feature_names}")
+
+    missing = [c for c in feature_names if c not in cartesian.columns]
+    if missing:
+        raise RuntimeError(f"cartesian_df missing model features: {missing}")
 
     # 8) recursive prediction
     forecast_full = recursive_forecast(
