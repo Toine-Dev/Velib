@@ -187,18 +187,14 @@ def preprocess_velib_data(df):
     df['heure_de_pointe'] = df['date_et_heure_de_comptage'].apply(is_rush_hour)
     df['nuit'] = df.apply(is_night, axis=1)
 
-    # # Coordonnées
-    # coords = df["coordonnées_géographiques"].str.split(",", expand=True)
-    # df["latitude"] = coords[0].astype(float)
-    # df["longitude"] = coords[1].astype(float)
 
-    # Alternative parsing of coordinates if they are stored as JSON strings (e.g. '{"lat": 48.8575, "lon": 2.3514}')
-    coords = df["coordonnees_geographiques"].apply(
-        lambda s: json.loads(s) if isinstance(s, str) and s.strip().startswith("{") else {}
-    )
+    # # Alternative parsing of coordinates if they are stored as JSON strings (e.g. '{"lat": 48.8575, "lon": 2.3514}')
+    # coords = df["coordonnees_geographiques"].apply(
+    #     lambda s: json.loads(s) if isinstance(s, str) and s.strip().startswith("{") else {}
+    # )
 
-    df["latitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lat")), errors="coerce")
-    df["longitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lon") or d.get("lng")), errors="coerce")
+    # df["latitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lat")), errors="coerce")
+    # df["longitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lon") or d.get("lng")), errors="coerce")
 
     return df
 
@@ -227,14 +223,14 @@ def preprocess_merged_data(df):
     #                                     "wind_speed_10m", 'lien_vers_photo_du_site_de_comptage', 'id_photos',
     #                                     'test_lien_vers_photos_du_site_de_comptage_', 'id_photo_1', 'url_sites', 'type_dimage',
     #                                     "coordonnees_geographiques"])
-    df = df.drop(columns=["latitude", "longitude", "nom_du_site_de_comptage", "snowfall", 
+    df = df.drop(columns=["nom_du_site_de_comptage", "snowfall", "n", 
                           "rain","wind_speed_10m", "coordonnees_geographiques"])
                                         
 
     # Ajout des features statiques et dynamiques
-    # df = static_features(df)
+    df = static_features(df)
     df = time_varying_features(df)
-    df = df.dropna()
+    df = df.dropna(subset=["lag_1", "lag_24", "rolling_mean_24"])
 
     # Ajout des features cycliques
     df_encoded = add_cyclic_features(df)
@@ -250,56 +246,3 @@ def preprocess_merged_data(df):
 
 
 
-DB_URL = database_url()
-
-RAW_TABLE = "velib_raw"
-FEATURES_TABLE = "site_features"
-
-engine = create_engine(DB_URL, future=True)
-
-def main():
-    with engine.begin() as conn:  # auto-commit/rollback
-        conn.execute(text(f"""
-        CREATE TABLE IF NOT EXISTS {FEATURES_TABLE} (
-          identifiant_du_site_de_comptage text PRIMARY KEY,
-          n bigint NOT NULL,
-          mean double precision,
-          std double precision,
-          min double precision,
-          max double precision
-        );
-        """))
-
-        conn.execute(text(f"""
-        CREATE INDEX IF NOT EXISTS idx_raw_site
-        ON {RAW_TABLE} (identifiant_du_site_de_comptage);
-        """))
-
-        conn.execute(text(f"""
-        INSERT INTO {FEATURES_TABLE} (
-          identifiant_du_site_de_comptage,
-          n,
-          mean,
-          std,
-          min,
-          max
-        )
-        SELECT
-          identifiant_du_site_de_comptage,
-          COUNT(comptage_horaire) AS n,
-          AVG(comptage_horaire)::double precision AS mean,
-          STDDEV_SAMP(comptage_horaire)::double precision AS std,
-          MIN(comptage_horaire)::double precision AS min,
-          MAX(comptage_horaire)::double precision AS max
-        FROM {RAW_TABLE}
-        WHERE comptage_horaire IS NOT NULL
-        GROUP BY identifiant_du_site_de_comptage
-        ON CONFLICT (identifiant_du_site_de_comptage) DO UPDATE SET
-          n = EXCLUDED.n,
-          mean = EXCLUDED.mean,
-          std = EXCLUDED.std,
-          min = EXCLUDED.min,
-          max = EXCLUDED.max;
-        """))
-
-    print("✅ site_features refreshed")

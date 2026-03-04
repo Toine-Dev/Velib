@@ -1,13 +1,15 @@
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
+from pathlib import Path
 from data.loader import load_raw_velib_data, load_processed_data
 
 #-------------------------------------------------------PAGE OVERVIEW-------------------------------------------------------------------
 def show_overview():
     raw_df_velib = load_raw_velib_data()
     processed_df = load_processed_data()
-
+    st.write("### Aperçu des données traitées")
+    st.dataframe(processed_df.columns)
     raw_df_velib["date_et_heure_de_comptage"] = pd.to_datetime(raw_df_velib["date_et_heure_de_comptage"])
     date_min = raw_df_velib["date_et_heure_de_comptage"].min()
     date_max = raw_df_velib["date_et_heure_de_comptage"].max()
@@ -24,8 +26,11 @@ La ville de Paris déploie depuis plusieurs années des compteurs à vélo perma
     st.subheader("Localisation des bornes de comptage à Paris")
 
     try:
-        with open("/images/compteur_paris.html", "r", encoding="utf-8") as f:
+        file_path = Path(__file__).resolve().parents[2] / "images" / "compteur_paris.html"
+        # st.write(f"Chemin du fichier HTML : {file_path}")
+        with open(file_path, "r", encoding="utf-8") as f:
             map_html = f.read()
+        # st.write("FILE WAS READ SUCCESSFULLY")
         components.html(map_html, height=600, scrolling=False)
     except FileNotFoundError:
         st.error("Le fichier 'compteur_paris.html' est introuvable. Assurez-vous qu'il se trouve dans le dossier du projet.")
@@ -56,7 +61,8 @@ Notre jeu de données initial provient du site de la **mairie de Paris** (*dispo
         "Géolocalisation du site de comptage (latitude longitude), de type string."
     ]
 })
-    st.dataframe(data_description, use_container_width=True, height= 597)
+    # st.dataframe(data_description, use_container_width=True, height= 597)
+    st.dataframe(data_description, use_container_width=True)
 
     st.markdown(f"""
     Avant de commencer l'étape de modélisation et il important de bien nettoyer nos données et de bien comprendre quelles données pourront nous être utiles pour prédire l'affluence des vélos à Paris.)
