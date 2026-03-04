@@ -42,33 +42,26 @@ Cette carte interactive présente les emplacements des bornes de comptage vélos
 
     st.markdown("### Dictionnaire des données d'origine")
 
+    st.markdown("""
+Notre jeu de données initial provient du site de la **mairie de Paris** (*disponible dans la sidebar*) qui propose une data open source issue des différentes sites de comptage de la capitale. On compte **16** colonnes mais elles contiennent des redondances, **5** colonnes pour l'identifiant ou numéro de site de comptage et **5** colonnes pour la photo du site. De ce dataset nous garderons seulement l'identifiant du site de comptage, le nom du site de comptage, le comptage horaire, la date et heure du comptage ainsi que les coordonnées géographiques. 
+""")
+
     data_description = pd.DataFrame({
         "Nom de la donnée": raw_df_velib.columns,
     "Description": [
-        "Identifiant du compteur, de type string.",
-        "Rue du compteur + points cardinaux (N-S-E-O), de type string.",
         "Identifiant du site de comptage, de type string.",
         "Rue du site de comptage, de type string.",
         "Nombre de vélo utilisant la piste cyclable à chaque heure pour une borne donnée, de type integer.",
         "Date et heure du comptage de vélo de la station, de type datetime yyyy-mm-dd-hh-mm-ss.",
-        "Date d'installation du site de comptage, de type date date dd/mm/yyyy.",
-        "Lien https de la photo du site de comptage, de type string.",
-        "Géolocalisation du site de comptage (latitude longitude), de type string.",
-        "Identifiant technique du compteur, de type string.",
-        "Photo de la borne, de type string.",
-        "Photo de la borne, de type string.",
-        "Photo de la borne, de type string.",
-        "Photo de la borne, de type string.",
-        "Type d'image jpg, png, etc, de type string.",
-        "Date année et mois du comptage, de type string."
+        "Géolocalisation du site de comptage (latitude longitude), de type string."
     ]
 })
     st.dataframe(data_description, use_container_width=True, height= 597)
 
-    st.markdown("""
-Notre jeu de données initial provient du site de la **mairie de Paris** (*disponible dans la sidebar*) qui propose une data open source issue des différentes sites de comptage de la capitale. On compte **16** colonnes mais elles contiennent des redondances, **5** colonnes pour l'identifiant ou numéro de site de comptage et **5** colonnes pour la photo du site. De ce dataset nous garderons seulement l'identifiant du site de comptage, le nom du site de comptage, la date et heure du comptage ainsi que le comptage horaire. Avant de commencer l'étape de modélisation et il important de bien nettoyer nos données et de bien comprendre quelles données pourront nous être utiles pour prédire l'affluence des vélos à Paris.
-""")
-
+    st.markdown(f"""
+    Avant de commencer l'étape de modélisation et il important de bien nettoyer nos données et de bien comprendre quelles données pourront nous être utiles pour prédire l'affluence des vélos à Paris.)
+    """)
+     
     st.markdown(f"""
 ### Étapes principales du Feature Engineering
 
