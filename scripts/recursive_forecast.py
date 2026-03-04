@@ -117,7 +117,7 @@ def is_vacances(ts: pd.Timestamp) -> bool:
 
 def build_future_feature_frame(start_dt: pd.Timestamp, end_dt: pd.Timestamp, weather_fc: pd.DataFrame) -> pd.DataFrame:
     # hourly timestamps strictly after start_dt, up to end_dt inclusive
-    hours = pd.date_range(start=start_dt, end=end_dt, freq="H", inclusive="right")
+    hours = pd.date_range(start=start_dt, end=end_dt, freq="h", inclusive="right")
     df = pd.DataFrame({"date_et_heure_de_comptage": hours})
     df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"], errors="coerce").dt.floor("h")
 
@@ -162,6 +162,11 @@ def build_future_feature_frame(start_dt: pd.Timestamp, end_dt: pd.Timestamp, wea
 
     # keep only expected numeric weather
     df["apparent_temperature"] = df["apparent_temperature"].astype(float)
+
+    df["mean"] = np.nan  # placeholder for site mean (not known at this stage)
+    df["std"] = np.nan   # placeholder for site std (not known at this stage)
+    df["max"] = np.nan   # placeholder for site max (not known at this
+    df["min"] = np.nan   # placeholder for site min (not known at this stage)
 
     # drop raw numeric cols not used by model (your processed schema doesn’t include them)
     df = df.drop(columns=["rain", "snowfall", "wind_speed_10m"], errors="ignore")
@@ -244,10 +249,13 @@ def main():
 
     # 4) build future feature frame
     future_feats = build_future_feature_frame(start_dt, end_dt, weather_fc)
+    print("Future feature frame for forecast horizon has columns:", future_feats.columns.tolist())
 
     # 5) cross join with sites
     sites = processed[["identifiant_du_site_de_comptage"]].drop_duplicates()
+    print("sites DataFrame has columns:", sites.columns.tolist())
     cartesian = sites.merge(future_feats, how="cross")
+    print("cartesian DataFrame after cross join has columns:", cartesian.columns.tolist())
 
     # placeholders for lags (will be filled per-row in recursion)
     for c in ["lag_1", "lag_24", "rolling_mean_24"]:
@@ -256,11 +264,12 @@ def main():
 
     # 6) history dict + site stats
     history_dict = build_history(processed, sites)
-    site_stats = compute_site_stats(processed)
+    site_stats = pd.read_sql("SELECT mean, std, max, min FROM site_features", engine)
 
     # 7) model + feature list (exactly: processed columns minus target)
     model, model_uri = load_latest_model()
     feature_names = [c for c in processed.columns if c != "comptage_horaire"]
+    print(f"Using model from {model_uri} with features: {feature_names}")
 
     # 8) recursive prediction
     forecast_full = recursive_forecast(

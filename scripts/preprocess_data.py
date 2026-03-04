@@ -152,6 +152,7 @@ def run_site_by_site_etl(
 ) -> None:
     processed_weather_data = load_and_preprocess_weather(engine)
     site_ids = iter_site_ids(engine)
+    site_stats = pd.read_sql("SELECT * FROM site_features", engine)
 
     # Optional: start fresh each run
     if truncate_output_first:
@@ -184,9 +185,9 @@ def run_site_by_site_etl(
             .drop(columns=[WEATHER_TIME_COL], errors="ignore")
         )
 
-        site_stats = pd.read_sql("SELECT * FROM site_features", engine)
-        print(f"The site_stats DataFrame has columns: {site_stats['identifiant_du_site_de_comptage'].dtype}")
-        print(f"The df_merged DataFrame has columns: {df_merged['identifiant_du_site_de_comptage'].dtype}")
+        # site_stats = pd.read_sql("SELECT * FROM site_features", engine)
+        # print(f"The site_stats DataFrame has columns: {site_stats['identifiant_du_site_de_comptage'].dtype}")
+        # print(f"The df_merged DataFrame has columns: {df_merged['identifiant_du_site_de_comptage'].dtype}")
         df_merged = df_merged.merge(
             site_stats,
             on="identifiant_du_site_de_comptage",
