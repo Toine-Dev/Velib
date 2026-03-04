@@ -43,25 +43,6 @@ services:
     command: python scripts/update_data.py
     restart: "no"
 
-  # update_api_debug:
-  #   build: .
-  #   profiles: ["debug"]
-  #   depends_on:
-  #     - db
-  #   volumes:
-  #     - .:/app
-  #   ports:
-  #     - "5678:5678"
-  #   environment:
-  #     DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
-  #     PYTHONPATH: /app/src
-  #     PYTHONUNBUFFERED: "1"
-  #     VELIB_API_URL: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records
-  #     HISTORICAL_WEATHER_API_URL: https://archive-api.open-meteo.com/v1/archive
-  #     FORECAST_WEATHER_API_URL: https://api.open-meteo.com/v1/forecast
-  #   command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client scripts/update_data.py
-  #   restart: "no"
-
   preprocess_data:
     build: .
     depends_on:
@@ -92,27 +73,6 @@ services:
       MLFLOW_EXPERIMENT_NAME: velib_forecast
     command: python scripts/train_model.py
     restart: "no"
-
-  # mlflow:
-  #   build: .
-  #   depends_on:
-  #     - db
-  #   ports:
-  #     - "5000:5000"
-  #   volumes:
-  #     - mlflow_artifacts:/mlflow/artifacts
-  #   environment:
-  #     # Store MLflow runs/params/metrics in the same Postgres instance
-  #     MLFLOW_BACKEND_STORE_URI: postgresql://ml_user:ml_password@db:5432/mlflow_db
-  #     # Store model files + artifacts on a Docker volume (persistent)
-  #     MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
-  #   command: >
-  #     mlflow server
-  #     --host 0.0.0.0
-  #     --port 5000
-  #     --backend-store-uri ${MLFLOW_BACKEND_STORE_URI}
-  #     --default-artifact-root ${MLFLOW_DEFAULT_ARTIFACT_ROOT}
-  #   restart: "no"
 
   mlflow:
     build: .
@@ -159,6 +119,20 @@ services:
       DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
       PYTHONPATH: /app/src
     command: streamlit run scripts/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    volumes:
+      - .:/app
+
+  api:
+    build: .
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      JWT_SECRET: "change-me-in-env"
+      MLFLOW_UI_URL: "http://localhost:5000"
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     volumes:
       - .:/app
 
