@@ -163,11 +163,6 @@ def build_future_feature_frame(start_dt: pd.Timestamp, end_dt: pd.Timestamp, wea
     # keep only expected numeric weather
     df["apparent_temperature"] = df["apparent_temperature"].astype(float)
 
-    # df["mean"] = np.nan  # placeholder for site mean (not known at this stage)
-    # df["std"] = np.nan   # placeholder for site std (not known at this stage)
-    # df["max"] = np.nan   # placeholder for site max (not known at this
-    # df["min"] = np.nan   # placeholder for site min (not known at this stage)
-
     # drop raw numeric cols not used by model (your processed schema doesn’t include them)
     df = df.drop(columns=["rain", "snowfall", "wind_speed_10m"], errors="ignore")
 

@@ -8,8 +8,6 @@ from data.loader import load_raw_velib_data, load_processed_data
 def show_overview():
     raw_df_velib = load_raw_velib_data()
     processed_df = load_processed_data()
-    st.write("### Aperçu des données traitées")
-    st.dataframe(processed_df.columns)
     raw_df_velib["date_et_heure_de_comptage"] = pd.to_datetime(raw_df_velib["date_et_heure_de_comptage"])
     date_min = raw_df_velib["date_et_heure_de_comptage"].min()
     date_max = raw_df_velib["date_et_heure_de_comptage"].max()
@@ -25,15 +23,15 @@ La ville de Paris déploie depuis plusieurs années des compteurs à vélo perma
 
     st.subheader("Localisation des bornes de comptage à Paris")
 
+    html_path = Path("images/compteur_paris.html")
     try:
-        file_path = Path(__file__).resolve().parents[2] / "images" / "compteur_paris.html"
-        # st.write(f"Chemin du fichier HTML : {file_path}")
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(html_path, "r", encoding="utf-8") as f:
             map_html = f.read()
-        # st.write("FILE WAS READ SUCCESSFULLY")
+
         components.html(map_html, height=600, scrolling=False)
+
     except FileNotFoundError:
-        st.error("Le fichier 'compteur_paris.html' est introuvable. Assurez-vous qu'il se trouve dans le dossier du projet.")
+        st.error("Le fichier 'compteur_paris.html' est introuvable.")
 
     st.markdown(f"""
 Cette carte interactive présente les emplacements des bornes de comptage vélos à Paris. Chaque point correspond à un site de comptage, permettant de suivre les flux de cyclistes à différents moments de la journée. En passant la souris dessus nous pouvons voir le nom de la rue où la borne est implantée. Dans notre jeu de données nous avons **{raw_df_velib["identifiant_du_site_de_comptage"].nunique()} sites** de comptage.
@@ -102,8 +100,8 @@ Grâce à l’étape de feature engineering, nous sommes passés d'un dataset br
         "Quantité de neige tombée en millimètre, transformé en booléen pour la modélisation.",
         "Moyenne du nombre de vélos comptés pour ce site, de type float.",
         "Variance du nombre de vélos comptés pour ce site, de type float.",
-        "Nombre maximum de vélos comptés pour ce site, de type float.",
         "Nombre minimum de vélos comptés pour ce site, de type float.",
+        "Nombre maximum de vélos comptés pour ce site, de type float.",
         "Nombre de comptage vélos 1 heure avant, de type float.",
         "Nombre de comptage vélos 24 heures avant, de type float.",
         "Moyenne roulante sur les dernières 24 heures, de type float.",
