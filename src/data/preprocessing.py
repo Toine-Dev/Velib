@@ -228,7 +228,7 @@ def preprocess_merged_data(df):
                                         
 
     # Ajout des features statiques et dynamiques
-    df = static_features(df)
+    # df = static_features(df)
     df = time_varying_features(df)
     df = df.dropna(subset=["lag_1", "lag_24", "rolling_mean_24"])
 

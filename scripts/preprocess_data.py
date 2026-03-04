@@ -8,7 +8,7 @@ from sqlalchemy.engine import Engine
 
 
 
-
+PROCESSED_TABLE = "velib_weather_processed"
 RAW_TABLE = "velib_raw"
 FEATURES_TABLE = "site_features"
 
@@ -16,6 +16,10 @@ FEATURES_TABLE = "site_features"
 def create_features_table(engine: Engine) -> None:
 
     with engine.begin() as conn:  # auto-commit/rollback
+        conn.execute(text(f"""
+        DROP TABLE IF EXISTS {PROCESSED_TABLE};
+        """))
+
         conn.execute(text(f"""
         DROP TABLE IF EXISTS {FEATURES_TABLE};
         """))
