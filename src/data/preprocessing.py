@@ -132,18 +132,6 @@ def static_features(df):
     return df
  
 
-# def time_varying_features(df):
-#     # Time-varying features per site
-#     df = df.sort_values(['identifiant_du_site_de_comptage', 'date_et_heure_de_comptage'])
-
-#     df['lag_1'] = df.groupby('identifiant_du_site_de_comptage')['comptage_horaire'].shift(1)
-#     df['lag_24'] = df.groupby('identifiant_du_site_de_comptage')['comptage_horaire'].shift(24)
-#     df['rolling_mean_24'] = (
-#         df.groupby('identifiant_du_site_de_comptage')['comptage_horaire']
-#         .shift(1).rolling(24).mean()
-#     )
-#     return df
-
 def time_varying_features(df):
     # Time-varying features (site-by-site ETL: df contains one site)
     df = df.sort_values('date_et_heure_de_comptage').copy()
@@ -230,14 +218,6 @@ def preprocess_merged_data(df):
         columns=["nom_du_site_de_comptage", "snowfall", "n", "rain", "wind_speed_10m", "coordonnees_geographiques"],
         errors="ignore"
     )
-
-    # Ajout des features statiques et dynamiques
-    # Static features:
-    # If site_features were already merged in ETL, we don't recompute them here.
-    # If missing, fallback to computing them from available data.
-    # static_cols = {"site_mean_usage", "site_usage_variability", "site_max_usage", "site_min_usage"}
-    # if not static_cols.issubset(df.columns):
-    #     df = static_features(df)
 
     df = time_varying_features(df)
 

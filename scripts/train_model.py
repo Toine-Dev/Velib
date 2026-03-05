@@ -28,8 +28,6 @@ if __name__ == "__main__":
         if processed_df[c].dtype == bool:
             processed_df[c] = processed_df[c].astype("int8")
 
-    # target_cols = ['identifiant_du_site_de_comptage']
-    # numeric_cols = [col for col in feature_names if col not in target_cols]
     # Préprocesseur
     preprocessor = make_preprocessor(target_cols, numeric_cols)
 
@@ -40,7 +38,6 @@ if __name__ == "__main__":
         "max_depth" : -1,
         "random_state" : 42
     }
-
 
     # Optional: make an experiment name configurable
     MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
@@ -85,6 +82,3 @@ if __name__ == "__main__":
 
         print(f"R2 Score: {metrics['R2']}")
         print("Pipeline complete.")
-
-        # with open("metrics.json", "w") as f:
-        #     json.dump(metrics, f)

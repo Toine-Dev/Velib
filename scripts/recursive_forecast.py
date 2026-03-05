@@ -246,13 +246,6 @@ def main():
     future_feats = build_future_feature_frame(start_dt, end_dt, weather_fc)
     print("Future feature frame for forecast horizon has columns:", future_feats.columns.tolist())
 
-    
-    # sites = processed[["identifiant_du_site_de_comptage"]].drop_duplicates()
-    # print("sites DataFrame has columns:", sites.columns.tolist())
-    # cartesian = sites.merge(future_feats, how="cross")
-    # print("cartesian DataFrame after cross join has columns:", cartesian.columns.tolist())
-
-    
     # 5) cross join with sites
     site_stats = pd.read_sql(
     "SELECT identifiant_du_site_de_comptage, mean, std, min, max FROM site_features",

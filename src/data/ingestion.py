@@ -5,15 +5,13 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 import os
-from data.preprocessing import coerce_velib_types, standardize_columns
-# from db.db import ensure_velib_raw_schema
+from data.preprocessing import coerce_velib_types
 from models.features import _drop_tz_if_any
-from utils.config import forecast_weather_api_url, historical_weather_api_url, velib_api_url, csv_url, table_name
+from utils.config import forecast_weather_api_url, historical_weather_api_url, velib_api_url
 import tempfile
 from utils.utils import get_max_date, insert_on_conflict_do_nothing
 from sqlalchemy import DateTime, Engine, Float, text
 import json
-
 
 def upsert_velib_sites(engine: Engine) -> None:
     stmt = text("""
@@ -66,40 +64,13 @@ def ensure_weather_raw_schema(engine: Engine) -> None:
 # ==============================
 # Configuration
 # ==============================
-
-# VELIB_API_URL = os.getenv("VELIB_API_URL")
-# HISTORICAL_WEATHER_API_URL = os.getenv("HISTORICAL_WEATHER_API_URL")
-# FORECAST_WEATHER_API_URL = os.getenv("FORECAST_WEATHER_API_URL")
-
-
-# col_map = {
-#     "id_compteur": "identifiant_du_compteur",
-#     "nom_compteur": "nom_du_compteur",
-#     "id": "identifiant_du_site_de_comptage",
-#     "name": "nom_du_site_de_comptage",
-#     "sum_counts": "comptage_horaire",
-#     "date": "date_et_heure_de_comptage",
-#     "installation_date": "date_d'installation_du_site_de_comptage",
-#     "url_photos_n1": "lien_vers_photo_du_site_de_comptage",
-#     "coordinates": "coordonnées_géographiques",
-#     "counter": "identifiant_technique_compteur",
-#     "photos": "id_photos",
-#     "test_lien_vers_photos_du_site_de_comptage_": "test_lien_vers_photos_du_site_de_comptage_",
-#     "id_photo_1": "id_photo_1",
-#     "url_sites": "url_sites",
-#     "type_dimage": "type_dimage",
-#     "mois_annee_comptage": "mois_annee_comptage"
-# }
 col_map = {
-    # "id_compteur": "identifiant_du_compteur",
-    # "nom_compteur": "nom_du_compteur",
     "id": "identifiant_du_site_de_comptage",
     "name": "nom_du_site_de_comptage",
     "sum_counts": "comptage_horaire",
     "date": "date_et_heure_de_comptage",
     "coordinates": "coordonnees_geographiques",
 }
-
 
 def _as_date(value) -> Optional[date]:
     if value is None:
@@ -155,11 +126,6 @@ def fetch_velib_data(
     timezone = "Europe/Paris"  # Velib data is in Paris local time, so we use that timezone for any date parsing/handling to ensure consistency with the raw dataset semantics. We will convert to UTC or naive timestamps as needed later in the pipeline, but using the correct local timezone here is crucial to avoid off-by-one-day errors around midnight and daylight saving time changes.
 
     while True:
-        # params = {
-        #     "where": where_clause,
-        #     "limit": limit,
-        #     "offset": offset,
-        # }
         params = {
             "where": where_clause,
             "limit": limit,
@@ -194,18 +160,14 @@ def fetch_velib_data(
     if df.empty:
         print("No new Velib data.")
         return
-    # print("The df DataFrame has the following columns:")
-    # print(df.columns)
-    # print(df["date_et_heure_de_comptage"].dtype)
+    
     s = pd.to_datetime(df["date_et_heure_de_comptage"], errors="coerce")
 
     if getattr(s.dt, "tz", None) is not None:
         s = s.dt.tz_localize(None)
 
     df["date_et_heure_de_comptage"] = s.dt.floor("h")
-    # if df["date_et_heure_de_comptage"].dt.tz is not None:
-    #     df["date_et_heure_de_comptage"] = (
-    #         df["date_et_heure_de_comptage"].dt.tz_localize(None)
+
     # ) # Convert to naive timestamps in local timezone (Paris time) to match the semantics of the raw dataset. This is important to avoid timezone-related bugs later in the pipeline. We will handle timezone conversion to UTC or other formats as needed in preprocessing, but using consistent naive local timestamps here is a simpler approach that matches the source data semantics and avoids common pitfalls with timezone-aware timestamps in pandas.
     return df
 
@@ -290,11 +252,6 @@ def fetch_weather_data(
         s = s.dt.tz_localize(None)
 
     df_weather["time"] = s.dt.floor("h")
-    # # Clean timestamp
-    # if df_weather["time"].dt.tz is not None:
-    #     df_weather["time"] = (
-    #         df_weather["time"].dt.tz_localize(None)
-    # ) # Convert to naive timestamps in local timezone (Paris time) to match the semantics of the raw dataset. This is important to avoid timezone-related bugs later in the pipeline. We will handle timezone conversion to UTC or other formats as needed in preprocessing, but using consistent naive local timestamps here is a simpler approach that matches the source data semantics and avoids common pitfalls with timezone-aware timestamps in pandas.
     
     return df_weather
 
@@ -315,8 +272,6 @@ def update_velib(engine: Engine):
         # Define initial start date manually
         start_date = "2020/01/01"  # replace with your real start
     else:
-        # velib_max_dt = datetime.strptime(velib_max, "%Y/%m/%d").date() # Convert velib_max string to date object to compare with yesterday date object
-        # velib_start = (velib_max_dt + timedelta(days=1)).strftime("%Y/%m/%d")
         max_date = _as_date(max_date)
         if max_date >= yesterday:
             print("✅ Velib already up to date.")
@@ -328,13 +283,8 @@ def update_velib(engine: Engine):
 
     print(f"Fetching Velib from {start_date} to {end_date}")
 
-    # df = fetch_velib_data(start_date=start_date, end_date=end_date)
     df = fetch_velib_range_by_day(start_date=start_date, end_date=end_date)
     if "coordonnees_geographiques" in df.columns:
-    #     df["coordonnees_geographiques"] = df["coordonnees_geographiques"].apply(
-    #         lambda v: json.dumps(v, ensure_ascii=False) if isinstance(v, dict) else v
-    #     ) # Convert dict to JSON string for storage in SQL database, while ensuring non-ASCII characters (e.g. accents) are preserved correctly. This is necessary because the raw API returns coordinates as a dict like {"latitude": 48.8575, "longitude": 2.3514}, but we want to store it as a string in the database.
-    # # We will parse it back to dict and split it into latitude and longitude in preprocessing step when needed.
         df["coordonnees_geographiques"] = df["coordonnees_geographiques"].apply(
             lambda v: f"{v['lat']},{v['lon']}" if isinstance(v, dict) else v
         ) # Convert dict to "lat,lon" string format for storage in SQL database. This is a simpler alternative to JSON string and is sufficient for our use case since we only have latitude and longitude. We can parse it back to dict or separate lat/lon in preprocessing step when needed.
@@ -343,9 +293,6 @@ def update_velib(engine: Engine):
     if df.empty:
         print("No new Velib data.")
         return
-
-    # df.to_sql("velib_raw", engine, if_exists="append", index=False, method="multi", chunksize=2000)
-    # print(f"✅ Inserted {len(df)} Velib rows.")
 
     df = coerce_velib_types(df)
     # Drop rows with missing key columns (cannot be used for training/features)
@@ -357,7 +304,6 @@ def update_velib(engine: Engine):
     inserted = insert_on_conflict_do_nothing(engine, df)
     print(f"✅ Inserted {inserted} new Velib rows (after deduplication).")
     
-
 
 # -------------------------------
 # Weather Update
@@ -492,37 +438,6 @@ def update_weather_forecast(engine: Engine, horizon_hours: int = 168) -> None:
         f"covering {df['time'].min()} → {df['time'].max()} (Paris-naive)"
     )
 
-# def download_and_insert_in_chunks(engine, chunksize=50000):
-#     url = csv_url()
-#     print(f"Streaming CSV from {url} ...")
-
-#     chunk_iter = pd.read_csv(url, sep=";", chunksize=chunksize)
-
-#     first_chunk = True
-
-#     for chunk in chunk_iter:
-#         print(f"Inserting chunk with {len(chunk)} rows")
-
-#         # 🔹 Standardize column names
-#         chunk = standardize_columns(chunk)
-
-#         chunk.to_sql(
-#             table_name(),
-#             engine,
-#             if_exists="replace" if first_chunk else "append",
-#             index=False
-#         )
-
-#         first_chunk = False
-
-#     print("All chunks inserted successfully.")
-
-# print(fetch_velib_data("2026/01/30", "2026/01/30")) # Works
-# print(fetch_velib_data("2026/01/30")) # Works
-# print(fetch_velib_data("2026/01/30").columns) # Works
-# print(fetch_weather_data("2026-01-29", "2026-01-30"))  # Works
-# print(fetch_weather_data("2026-01-29")["time"])  # Works
-
 
 def _download_to_tempfile(url: str, *, retries: int = 3, timeout=(5, 120)) -> str:
     """
@@ -557,111 +472,3 @@ def _download_to_tempfile(url: str, *, retries: int = 3, timeout=(5, 120)) -> st
             time.sleep(sleep_s)
 
     raise RuntimeError(f"Failed to download CSV after {retries} attempts: {last_err}")
-
-
-# def download_and_insert_in_chunks(engine, chunksize=50_000):
-#     url = csv_url()
-#     print(f"Downloading CSV from {url} ...", flush=True)
-
-#     csv_path = _download_to_tempfile(url, retries=4, timeout=(5, 180))
-
-#     try:
-#         print(f"Reading chunks from {csv_path} ...", flush=True)
-#         chunk_iter = pd.read_csv(csv_path, sep=";", chunksize=chunksize, usecols=["Identifiant du site de comptage",
-#                                                                                   "Nom du site de comptage","Comptage horaire","Date et heure de comptage", 
-#                                                                                   "Coordonnées géographiques"])
-
-#         first_chunk = True
-#         total_rows = 0
-
-#         for i, chunk in enumerate(chunk_iter, start=1):
-#             rows = len(chunk)
-#             total_rows += rows
-#             print(f"Inserting chunk {i} with {rows} rows (total so far: {total_rows})", flush=True)
-
-#             chunk = standardize_columns(chunk)
-
-#             chunk.to_sql(
-#                 table_name(),
-#                 engine,
-#                 if_exists="replace" if first_chunk else "append",
-#                 index=False,
-#                 method="multi",        # usually faster
-#                 chunksize=2000         # controls INSERT batching, independent of read chunksize
-#             )
-
-#             first_chunk = False
-
-#         print(f"All chunks inserted successfully. Total rows inserted: {total_rows}", flush=True)
-
-#     finally:
-#         # Clean up temp file
-#         try:
-#             os.remove(csv_path)
-#         except OSError:
-#             pass
-
-# import os
-# import pandas as pd
-
-# def download_and_insert_in_chunks(engine, chunksize=50_000):
-#     url = csv_url()
-#     print(f"Downloading CSV from {url} ...", flush=True)
-
-#     # 1) Ensure schema exists with correct types
-#     ensure_velib_raw_schema(engine)
-
-#     csv_path = _download_to_tempfile(url, retries=4, timeout=(5, 180))
-
-#     try:
-#         print(f"Reading chunks from {csv_path} ...", flush=True)
-
-#         chunk_iter = pd.read_csv(
-#             csv_path,
-#             sep=";",
-#             chunksize=chunksize,
-#             usecols=[
-#                 "Identifiant du site de comptage",
-#                 "Nom du site de comptage",
-#                 "Comptage horaire",
-#                 "Date et heure de comptage",
-#                 "Coordonnées géographiques",
-#             ],
-#         )
-
-#         total_rows = 0
-
-#         for i, chunk in enumerate(chunk_iter, start=1):
-#             rows = len(chunk)
-#             total_rows += rows
-#             print(f"Inserting chunk {i} with {rows} rows (total so far: {total_rows})", flush=True)
-
-#             # 2) Standardize columns (your existing function)
-#             chunk = standardize_columns(chunk)
-
-#             # 3) Rename the coordinates column to match DB schema
-#             # After standardize_columns, it will likely be "coordonnées_géographiques" (still accented)
-#             # Normalize it once here:
-#             if "coordonnées_géographiques" in chunk.columns:
-#                 chunk = chunk.rename(columns={"coordonnées_géographiques": "coordonnees_geographiques"})
-
-#             # 4) Coerce types so they match the table schema
-#             chunk = coerce_velib_types(chunk)
-
-#             # 5) Append only (do not replace)
-#             chunk.to_sql(
-#                 "velib_raw",
-#                 engine,
-#                 if_exists="append",
-#                 index=False,
-#                 method="multi",
-#                 chunksize=2000,
-#             )
-
-#         print(f"All chunks inserted successfully. Total rows inserted: {total_rows}", flush=True)
-
-#     finally:
-#         try:
-#             os.remove(csv_path)
-#         except OSError:
-#             pass

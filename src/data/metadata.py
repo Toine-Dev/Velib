@@ -3,9 +3,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Union
 import json
 import shutil
-
 from data.loader import load_raw_velib_data
-
 
 # Paths
 RAW_VELIB_PATH = Path("./comptage_velo_donnees_compteurs.csv")
@@ -111,14 +109,3 @@ def last_cached_datetime() -> Tuple[pd.Timestamp, pd.Timestamp]:
     start_datetime = pd.to_datetime(raw_df_velib['date_et_heure_de_comptage'].max())
     start_date = start_datetime.date()
     return start_datetime, start_date
-
-
-
-# def update_velib_dates(state: Dict, new_max_date: str) -> None:
-#     state["velib"]["max_date"] = new_max_date
-#     save_metadata(state)
-
-
-# def update_weather_dates(state: Dict, new_max_date: str) -> None:
-#     state["weather"]["max_date"] = new_max_date
-#     save_metadata(state)

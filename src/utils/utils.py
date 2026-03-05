@@ -20,13 +20,6 @@ def get_max_date(table_name: str, column_name: str):
         )
         return result_min.scalar(), result_max.scalar()
     
-
-
-
-
-
-
-
 def drop_unique_index_if_exists(engine):
     with engine.begin() as conn:
         conn.execute(text("DROP INDEX IF EXISTS uq_velib_station_time;"))
@@ -73,11 +66,6 @@ def delete_duplicates(engine):
     dedupe_velib_raw(engine)
     create_unique_index(engine)
     create_supporting_indexes(engine)
-
-
-
-
-
 
 def insert_on_conflict_do_nothing(engine, df, page_size=2000):
     if df.empty:

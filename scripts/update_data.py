@@ -20,39 +20,6 @@ with engine.begin() as conn:
     )
     print(f"Deleted {result.rowcount} rows")
 
-
-
-## This will have to be implemented to ensure uniqueness of records ###
-# def ensure_constraints(engine):
-#     with engine.begin() as conn:  # auto-commit/rollback
-#         conn.execute(text("""
-#             CREATE UNIQUE INDEX IF NOT EXISTS velib_unique
-#             ON velib_raw (identifiant_du_site_de_comptage, date_et_heure_de_comptage);
-#         """))
-
-#         conn.execute(text("""
-#             CREATE UNIQUE INDEX IF NOT EXISTS weather_unique
-#             ON weather_raw ("time");
-#         """))
-
-# def ensure_constraints():
-#     with engine.connect() as conn:
-#         conn.execute(text("""
-#             ALTER TABLE velib_raw
-#             ADD CONSTRAINT IF NOT EXISTS velib_unique
-#             UNIQUE (identifiant_du_site_de_comptage, date_et_heure_de_comptage);
-#         """))
-
-#         conn.execute(text("""
-#             ALTER TABLE weather_raw
-#             ADD CONSTRAINT IF NOT EXISTS weather_unique
-#             UNIQUE (time);
-#         """))
-
-#         conn.commit()
-
-
-
 if __name__ == "__main__":
     engine = create_engine(database_url())
     update_velib(engine)
