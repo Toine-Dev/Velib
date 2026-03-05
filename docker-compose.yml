@@ -132,6 +132,8 @@ services:
       DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
       JWT_SECRET: "change-me-in-env"
       MLFLOW_UI_URL: "http://localhost:5000"
+      API_ADMIN_USER: "admin"
+      API_ADMIN_PASS: "admin"
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     volumes:
       - .:/app

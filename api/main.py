@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from fastapi.responses import StreamingResponse
 from io import BytesIO
+from datetime import timezone
 
 
 
@@ -63,44 +64,31 @@ class TrendPoint(BaseModel):
     comptage_horaire: float
 
 # ---------------- DB bootstrap (tables) ----------------
-def ensure_api_tables():
+def ensure_default_admin():
     with engine.begin() as conn:
-#         conn.execute(text("""
-#             CREATE TABLE IF NOT EXISTS users (
-#                 username TEXT PRIMARY KEY,
-#                 password_hash TEXT NOT NULL,
-#                 role TEXT NOT NULL CHECK (role IN ('admin', 'client')),
-#                 created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
-#             );
-#         """))
-#         conn.execute(text("""
-#             CREATE TABLE IF NOT EXISTS pipeline_jobs (
-#                 id BIGSERIAL PRIMARY KEY,
-#                 job_type TEXT NOT NULL CHECK (job_type IN ('data','model','forecast')),
-#                 status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','success','failed')),
-#                 created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
-#                 started_at TIMESTAMP WITHOUT TIME ZONE NULL,
-#                 finished_at TIMESTAMP WITHOUT TIME ZONE NULL,
-#                 message TEXT NULL
-#             );
-#         """))
-
         # Create a default admin if none exists (optional)
-        res = conn.execute(text("SELECT COUNT(*) FROM users WHERE role='admin';")).scalar()
+        res = conn.execute(text("SELECT COUNT(*) FROM api.users WHERE role='admin';")).scalar()
         if res == 0:
+            admin_user = os.getenv("API_ADMIN_USER", "admin")
+            admin_pass = os.getenv("API_ADMIN_PASS", "admin")
             conn.execute(
                 text("INSERT INTO users(username, password_hash, role) VALUES (:u,:p,'admin')"),
-                {"u": "admin", "p": pwd_context.hash("admin")}
+                {"u": admin_user, "p": pwd_context.hash(admin_pass)}
             )
 
-ensure_api_tables()
+ensure_default_admin()
 
 # ---------------- Auth helpers ----------------
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
+# def create_access_token(sub: str, role: str) -> str:
+#     exp = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_MINUTES)
+#     payload = {"sub": sub, "role": role, "exp": exp}
+#     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
 def create_access_token(sub: str, role: str) -> str:
-    exp = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_MINUTES)
+    exp = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES)
     payload = {"sub": sub, "role": role, "exp": exp}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
@@ -137,6 +125,32 @@ def root():
 def health():
     return {"status": "ok"}
 
+@app.get("/system/info", tags=["system"])
+def system_info():
+    """
+    Basic metadata endpoint (useful for demos + debugging).
+    """
+    # Try a lightweight DB ping
+    db_ok = True
+    db_error = None
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("SELECT 1")).scalar()
+    except Exception as e:
+        db_ok = False
+        db_error = str(e)
+
+    return {
+        "api": "velib-prediction-api",
+        "version": os.getenv("API_VERSION", "1.0.0"),
+        "server_time_utc": datetime.now(timezone.utc).isoformat(),
+        "mlflow_ui_url": MLFLOW_UI_URL,
+        "db_ok": db_ok,
+        "db_error": db_error,
+        "db_dsn": DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL,  # avoid leaking creds
+        "forecast_horizon_hours": int(os.getenv("FORECAST_HOURS", "48")),
+    }
+
 # ---- Auth ----
 @app.post("/auth/token", response_model=Token)
 def login(form: OAuth2PasswordRequestForm = Depends()):
@@ -146,6 +160,10 @@ def login(form: OAuth2PasswordRequestForm = Depends()):
     token = create_access_token(user["username"], user["role"])
     return Token(access_token=token)
 
+@app.get("/auth/me")
+def who_am_i(user=Depends(get_current_user)):
+    return user
+
 # ---- Client: Predict (DB forecast) ----
 @app.get("/client/forecast-heatmap")
 def forecast_heatmap(datetime: str, user=Depends(get_current_user)):
@@ -154,7 +172,7 @@ def forecast_heatmap(datetime: str, user=Depends(get_current_user)):
     Uses velib_forecast_geo (view: velib_forecast + velib_sites).
     """
     try:
-        dt = pd.to_datetime(datetime, errors="raise").floor("H").to_pydatetime()
+        dt = pd.to_datetime(datetime, errors="raise").floor("h").to_pydatetime()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid datetime. Use 'YYYY-MM-DD HH:00:00'.")
 
@@ -244,8 +262,8 @@ def predict(req: PredictRequest, user=Depends(get_current_user)):
 def trends(site_id: int, start: str, end: str, user=Depends(get_current_user)):
 
     try:
-        start_dt = pd.to_datetime(start).floor("H").to_pydatetime()
-        end_dt = pd.to_datetime(end).floor("H").to_pydatetime()
+        start_dt = pd.to_datetime(start).floor("h").to_pydatetime()
+        end_dt = pd.to_datetime(end).floor("h").to_pydatetime()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid start/end datetime.")
 
