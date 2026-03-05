@@ -190,7 +190,13 @@ def fetch_velib_data(
         time.sleep(sleep)
     
     df = pd.DataFrame(all_records).rename(columns=col_map)
-    print(df["date_et_heure_de_comptage"].dtype)
+
+    if df.empty:
+        print("No new Velib data.")
+        return
+    # print("The df DataFrame has the following columns:")
+    # print(df.columns)
+    # print(df["date_et_heure_de_comptage"].dtype)
     s = pd.to_datetime(df["date_et_heure_de_comptage"], errors="coerce")
 
     if getattr(s.dt, "tz", None) is not None:
