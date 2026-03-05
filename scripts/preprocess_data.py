@@ -5,6 +5,71 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+
+
+
+PROCESSED_TABLE = "velib_weather_processed"
+RAW_TABLE = "velib_raw"
+FEATURES_TABLE = "site_features"
+
+
+def create_features_table(engine: Engine) -> None:
+
+    with engine.begin() as conn:  # auto-commit/rollback
+        conn.execute(text(f"""
+        DROP TABLE IF EXISTS {PROCESSED_TABLE};
+        """))
+
+        conn.execute(text(f"""
+        DROP TABLE IF EXISTS {FEATURES_TABLE};
+        """))
+
+        conn.execute(text(f"""
+        CREATE TABLE IF NOT EXISTS {FEATURES_TABLE} (
+          identifiant_du_site_de_comptage BIGINT NOT NULL PRIMARY KEY,
+          n bigint NOT NULL,
+          mean double precision,
+          std double precision,
+          min double precision,
+          max double precision
+        );
+        """))
+
+        conn.execute(text(f"""
+        CREATE INDEX IF NOT EXISTS idx_raw_site
+        ON {RAW_TABLE} (identifiant_du_site_de_comptage);
+        """))
+
+        conn.execute(text(f"""
+        INSERT INTO {FEATURES_TABLE} (
+          identifiant_du_site_de_comptage,
+          n,
+          mean,
+          std,
+          min,
+          max
+        )
+        SELECT
+          identifiant_du_site_de_comptage,
+          COUNT(comptage_horaire) AS n,
+          AVG(comptage_horaire)::double precision AS mean,
+          STDDEV_SAMP(comptage_horaire)::double precision AS std,
+          MIN(comptage_horaire)::double precision AS min,
+          MAX(comptage_horaire)::double precision AS max
+        FROM {RAW_TABLE}
+        WHERE comptage_horaire IS NOT NULL
+        GROUP BY identifiant_du_site_de_comptage
+        ON CONFLICT (identifiant_du_site_de_comptage) DO UPDATE SET
+          n = EXCLUDED.n,
+          mean = EXCLUDED.mean,
+          std = EXCLUDED.std,
+          min = EXCLUDED.min,
+          max = EXCLUDED.max;
+        """))
+
+    print("✅ site_features refreshed")
+
+
 # --- Your existing functions ---
 # def preprocess_velib_data(raw_velib_df: pd.DataFrame) -> pd.DataFrame: ...
 # def preprocess_weather_data(raw_weather_df: pd.DataFrame) -> pd.DataFrame: ...
@@ -87,6 +152,7 @@ def run_site_by_site_etl(
 ) -> None:
     processed_weather_data = load_and_preprocess_weather(engine)
     site_ids = iter_site_ids(engine)
+    site_stats = pd.read_sql("SELECT * FROM site_features", engine)
 
     # Optional: start fresh each run
     if truncate_output_first:
@@ -119,6 +185,15 @@ def run_site_by_site_etl(
             .drop(columns=[WEATHER_TIME_COL], errors="ignore")
         )
 
+        # site_stats = pd.read_sql("SELECT * FROM site_features", engine)
+        # print(f"The site_stats DataFrame has columns: {site_stats['identifiant_du_site_de_comptage'].dtype}")
+        # print(f"The df_merged DataFrame has columns: {df_merged['identifiant_du_site_de_comptage'].dtype}")
+        df_merged = df_merged.merge(
+            site_stats,
+            on="identifiant_du_site_de_comptage",
+            how="left"
+        )
+
         df_encoded, _ = preprocess_merged_data(df_merged)
 
         # Write incrementally
@@ -131,7 +206,7 @@ def run_site_by_site_etl(
 
 def main() -> None:
     engine = create_engine(database_url(), pool_pre_ping=True)
-
+    create_features_table(engine)
     # # Strongly recommended: select only columns you actually need for preprocessing
     # velib_columns = [
     #     ID_COL,

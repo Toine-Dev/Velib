@@ -1,13 +1,13 @@
 import streamlit as st
 import pandas as pd
 import streamlit.components.v1 as components
+from pathlib import Path
 from data.loader import load_raw_velib_data, load_processed_data
 
 #-------------------------------------------------------PAGE OVERVIEW-------------------------------------------------------------------
 def show_overview():
     raw_df_velib = load_raw_velib_data()
     processed_df = load_processed_data()
-
     raw_df_velib["date_et_heure_de_comptage"] = pd.to_datetime(raw_df_velib["date_et_heure_de_comptage"])
     date_min = raw_df_velib["date_et_heure_de_comptage"].min()
     date_max = raw_df_velib["date_et_heure_de_comptage"].max()
@@ -23,12 +23,15 @@ La ville de Paris déploie depuis plusieurs années des compteurs à vélo perma
 
     st.subheader("Localisation des bornes de comptage à Paris")
 
+    html_path = Path("images/compteur_paris.html")
     try:
-        with open("/images/compteur_paris.html", "r", encoding="utf-8") as f:
+        with open(html_path, "r", encoding="utf-8") as f:
             map_html = f.read()
+
         components.html(map_html, height=600, scrolling=False)
+
     except FileNotFoundError:
-        st.error("Le fichier 'compteur_paris.html' est introuvable. Assurez-vous qu'il se trouve dans le dossier du projet.")
+        st.error("Le fichier 'compteur_paris.html' est introuvable.")
 
     st.markdown(f"""
 Cette carte interactive présente les emplacements des bornes de comptage vélos à Paris. Chaque point correspond à un site de comptage, permettant de suivre les flux de cyclistes à différents moments de la journée. En passant la souris dessus nous pouvons voir le nom de la rue où la borne est implantée. Dans notre jeu de données nous avons **{raw_df_velib["identifiant_du_site_de_comptage"].nunique()} sites** de comptage.
@@ -56,7 +59,8 @@ Notre jeu de données initial provient du site de la **mairie de Paris** (*dispo
         "Géolocalisation du site de comptage (latitude longitude), de type string."
     ]
 })
-    st.dataframe(data_description, use_container_width=True, height= 597)
+    # st.dataframe(data_description, use_container_width=True, height= 597)
+    st.dataframe(data_description, use_container_width=True)
 
     st.markdown(f"""
     Avant de commencer l'étape de modélisation et il important de bien nettoyer nos données et de bien comprendre quelles données pourront nous être utiles pour prédire l'affluence des vélos à Paris.)
@@ -96,8 +100,8 @@ Grâce à l’étape de feature engineering, nous sommes passés d'un dataset br
         "Quantité de neige tombée en millimètre, transformé en booléen pour la modélisation.",
         "Moyenne du nombre de vélos comptés pour ce site, de type float.",
         "Variance du nombre de vélos comptés pour ce site, de type float.",
-        "Nombre maximum de vélos comptés pour ce site, de type float.",
         "Nombre minimum de vélos comptés pour ce site, de type float.",
+        "Nombre maximum de vélos comptés pour ce site, de type float.",
         "Nombre de comptage vélos 1 heure avant, de type float.",
         "Nombre de comptage vélos 24 heures avant, de type float.",
         "Moyenne roulante sur les dernières 24 heures, de type float.",

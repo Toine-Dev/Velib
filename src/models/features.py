@@ -82,6 +82,7 @@ def build_history(processed_df, unique_sites):
 
 def recursive_forecast(cartesian_df, history_dict, pipeline, feature_names, site_stats):
     cartesian_df = cartesian_df.sort_values(['identifiant_du_site_de_comptage','date_et_heure_de_comptage']).reset_index(drop=False) # trier cartesian_df pour avoir un ordre stable
+    print("cartesian_df sorted by site and datetime, with columns:", cartesian_df.columns.tolist())
     preds = [] # (idx, pred) pour recoller ensuite
 
     for site, site_df in cartesian_df.groupby('identifiant_du_site_de_comptage', sort=True):
@@ -98,7 +99,8 @@ def recursive_forecast(cartesian_df, history_dict, pipeline, feature_names, site
             row['lag_1'] = lag_1
             row['lag_24'] = lag_24
             row['rolling_mean_24'] = rolling_mean_24
-
+            print("Row has columns:", row.index.tolist())
+            print("Feature names expected by the model in src/models/features.py:", feature_names)
             # Construire X_row avec les mêmes feature_names utilisés au training
             X = pd.DataFrame([row[feature_names]])
 

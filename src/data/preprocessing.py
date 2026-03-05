@@ -132,16 +132,26 @@ def static_features(df):
     return df
  
 
-def time_varying_features(df):
-    # Time-varying features per site
-    df = df.sort_values(['identifiant_du_site_de_comptage', 'date_et_heure_de_comptage'])
+# def time_varying_features(df):
+#     # Time-varying features per site
+#     df = df.sort_values(['identifiant_du_site_de_comptage', 'date_et_heure_de_comptage'])
 
-    df['lag_1'] = df.groupby('identifiant_du_site_de_comptage')['comptage_horaire'].shift(1)
-    df['lag_24'] = df.groupby('identifiant_du_site_de_comptage')['comptage_horaire'].shift(24)
-    df['rolling_mean_24'] = (
-        df.groupby('identifiant_du_site_de_comptage')['comptage_horaire']
-        .shift(1).rolling(24).mean()
-    )
+#     df['lag_1'] = df.groupby('identifiant_du_site_de_comptage')['comptage_horaire'].shift(1)
+#     df['lag_24'] = df.groupby('identifiant_du_site_de_comptage')['comptage_horaire'].shift(24)
+#     df['rolling_mean_24'] = (
+#         df.groupby('identifiant_du_site_de_comptage')['comptage_horaire']
+#         .shift(1).rolling(24).mean()
+#     )
+#     return df
+
+def time_varying_features(df):
+    # Time-varying features (site-by-site ETL: df contains one site)
+    df = df.sort_values('date_et_heure_de_comptage').copy()
+
+    df['lag_1'] = df['comptage_horaire'].shift(1)
+    df['lag_24'] = df['comptage_horaire'].shift(24)
+    df['rolling_mean_24'] = df['comptage_horaire'].shift(1).rolling(24).mean()
+
     return df
 
 
@@ -172,46 +182,41 @@ def add_cyclic_features(df):
 # Load and preprocess data
 def preprocess_velib_data(df):
     print('Preprocessing has started.')
-    df = df.dropna().copy()
-    df['date_et_heure_de_comptage'] = pd.to_datetime(df['date_et_heure_de_comptage'].astype(str), errors='coerce')
-    df = df.dropna(subset=['date_et_heure_de_comptage']).copy()
-    if df["date_et_heure_de_comptage"].dt.tz is not None:
+
+    df = df.copy()
+
+    # Keep only required rows (do NOT dropna globally; it kills too much data)
+    df['date_et_heure_de_comptage'] = pd.to_datetime(df['date_et_heure_de_comptage'], errors='coerce')
+    df = df.dropna(subset=['identifiant_du_site_de_comptage', 'comptage_horaire', 'date_et_heure_de_comptage']).copy()
+
+    # Drop timezone if present (do not convert)
+    if getattr(df["date_et_heure_de_comptage"].dt, "tz", None) is not None:
         df['date_et_heure_de_comptage'] = df['date_et_heure_de_comptage'].dt.tz_localize(None)
+
+    # Align to hourly timestamps (helps stable merges + lag logic)
+    df['date_et_heure_de_comptage'] = df['date_et_heure_de_comptage'].dt.floor("h")
 
     # Features temporelles
     df['heure'] = df['date_et_heure_de_comptage'].dt.hour
     df['mois'] = df['date_et_heure_de_comptage'].dt.month
-    df['jour'] = df['date_et_heure_de_comptage'].dt.day
+    df['jour'] = df['date_et_heure_de_comptage'].dt.weekday  # 0..6 (IMPORTANT)
     df['saison'] = df['date_et_heure_de_comptage'].apply(get_season_from_date)
     df['vacances'] = df['date_et_heure_de_comptage'].apply(is_vacances)
     df['heure_de_pointe'] = df['date_et_heure_de_comptage'].apply(is_rush_hour)
     df['nuit'] = df.apply(is_night, axis=1)
-
-    # # Coordonnées
-    # coords = df["coordonnées_géographiques"].str.split(",", expand=True)
-    # df["latitude"] = coords[0].astype(float)
-    # df["longitude"] = coords[1].astype(float)
-
-    # Alternative parsing of coordinates if they are stored as JSON strings (e.g. '{"lat": 48.8575, "lon": 2.3514}')
-    coords = df["coordonnees_geographiques"].apply(
-        lambda s: json.loads(s) if isinstance(s, str) and s.strip().startswith("{") else {}
-    )
-
-    df["latitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lat")), errors="coerce")
-    df["longitude"] = pd.to_numeric(coords.apply(lambda d: d.get("lon") or d.get("lng")), errors="coerce")
 
     return df
 
 
 def preprocess_weather_data(df):
     # Ajout météo
+    df = df.copy()
+    df['time'] = pd.to_datetime(df['time'], errors='coerce').dt.floor("h")
+
     df['pluie'] = (df['rain'] > 0)
-    df['vent'] = (df['wind_speed_10m'] > 30)
+    df['vent'] = (df['wind_speed_10m'] > 15)  # choose threshold consistent with training
     df['neige'] = (df['snowfall'] > 0)
 
-    # Convert 'time' column to datetime
-    df['time'] = pd.to_datetime(df['time'], errors='coerce')
-    # Check for any conversion errors
     if df['time'].isnull().any():
         print("Warning: Some time values could not be converted to datetime.")
 
@@ -221,28 +226,31 @@ def preprocess_weather_data(df):
 def preprocess_merged_data(df):
 
     # Nettoyage colonnes inutiles
-    # df = df.drop(columns=["latitude", "longitude", "date_d'installation_du_site_de_comptage",
-    #                                     "identifiant_technique_compteur", "mois_annee_comptage", "identifiant_du_compteur",
-    #                                     "nom_du_site_de_comptage", "nom_du_compteur", "snowfall", "rain",
-    #                                     "wind_speed_10m", 'lien_vers_photo_du_site_de_comptage', 'id_photos',
-    #                                     'test_lien_vers_photos_du_site_de_comptage_', 'id_photo_1', 'url_sites', 'type_dimage',
-    #                                     "coordonnees_geographiques"])
-    df = df.drop(columns=["latitude", "longitude", "nom_du_site_de_comptage", "snowfall", 
-                          "rain","wind_speed_10m", "coordonnees_geographiques"])
-                                        
+    df = df.drop(
+        columns=["nom_du_site_de_comptage", "snowfall", "n", "rain", "wind_speed_10m", "coordonnees_geographiques"],
+        errors="ignore"
+    )
 
     # Ajout des features statiques et dynamiques
-    # df = static_features(df)
+    # Static features:
+    # If site_features were already merged in ETL, we don't recompute them here.
+    # If missing, fallback to computing them from available data.
+    # static_cols = {"site_mean_usage", "site_usage_variability", "site_max_usage", "site_min_usage"}
+    # if not static_cols.issubset(df.columns):
+    #     df = static_features(df)
+
     df = time_varying_features(df)
-    df = df.dropna()
+
+    # Only drop rows where lag features are missing (keeps more data than global dropna)
+    df = df.dropna(subset=["lag_1", "lag_24", "rolling_mean_24"]).copy()
 
     # Ajout des features cycliques
     df_encoded = add_cyclic_features(df)
-    print("df_encoded:",df_encoded.columns)
 
     # Sélection des features
     features = [col for col in df_encoded.columns if col not in ['comptage_horaire', 'date_et_heure_de_comptage']]
-    df_encoded = df_encoded.sort_values(by='date_et_heure_de_comptage', ascending=True).reset_index(drop = True)
+    df_encoded = df_encoded.sort_values(by='date_et_heure_de_comptage', ascending=True).reset_index(drop=True)
+
     return df_encoded, features
 
 
@@ -250,56 +258,3 @@ def preprocess_merged_data(df):
 
 
 
-DB_URL = database_url()
-
-RAW_TABLE = "velib_raw"
-FEATURES_TABLE = "site_features"
-
-engine = create_engine(DB_URL, future=True)
-
-def main():
-    with engine.begin() as conn:  # auto-commit/rollback
-        conn.execute(text(f"""
-        CREATE TABLE IF NOT EXISTS {FEATURES_TABLE} (
-          identifiant_du_site_de_comptage text PRIMARY KEY,
-          n bigint NOT NULL,
-          mean double precision,
-          std double precision,
-          min double precision,
-          max double precision
-        );
-        """))
-
-        conn.execute(text(f"""
-        CREATE INDEX IF NOT EXISTS idx_raw_site
-        ON {RAW_TABLE} (identifiant_du_site_de_comptage);
-        """))
-
-        conn.execute(text(f"""
-        INSERT INTO {FEATURES_TABLE} (
-          identifiant_du_site_de_comptage,
-          n,
-          mean,
-          std,
-          min,
-          max
-        )
-        SELECT
-          identifiant_du_site_de_comptage,
-          COUNT(comptage_horaire) AS n,
-          AVG(comptage_horaire)::double precision AS mean,
-          STDDEV_SAMP(comptage_horaire)::double precision AS std,
-          MIN(comptage_horaire)::double precision AS min,
-          MAX(comptage_horaire)::double precision AS max
-        FROM {RAW_TABLE}
-        WHERE comptage_horaire IS NOT NULL
-        GROUP BY identifiant_du_site_de_comptage
-        ON CONFLICT (identifiant_du_site_de_comptage) DO UPDATE SET
-          n = EXCLUDED.n,
-          mean = EXCLUDED.mean,
-          std = EXCLUDED.std,
-          min = EXCLUDED.min,
-          max = EXCLUDED.max;
-        """))
-
-    print("✅ site_features refreshed")

@@ -8,4 +8,4 @@ __pycache__/
 # assets/
 *.pkl
 test.py
-*.html
+# *.html

@@ -117,7 +117,7 @@ def is_vacances(ts: pd.Timestamp) -> bool:
 
 def build_future_feature_frame(start_dt: pd.Timestamp, end_dt: pd.Timestamp, weather_fc: pd.DataFrame) -> pd.DataFrame:
     # hourly timestamps strictly after start_dt, up to end_dt inclusive
-    hours = pd.date_range(start=start_dt, end=end_dt, freq="H", inclusive="right")
+    hours = pd.date_range(start=start_dt, end=end_dt, freq="h", inclusive="right")
     df = pd.DataFrame({"date_et_heure_de_comptage": hours})
     df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"], errors="coerce").dt.floor("h")
 
@@ -244,23 +244,41 @@ def main():
 
     # 4) build future feature frame
     future_feats = build_future_feature_frame(start_dt, end_dt, weather_fc)
+    print("Future feature frame for forecast horizon has columns:", future_feats.columns.tolist())
 
+    
+    # sites = processed[["identifiant_du_site_de_comptage"]].drop_duplicates()
+    # print("sites DataFrame has columns:", sites.columns.tolist())
+    # cartesian = sites.merge(future_feats, how="cross")
+    # print("cartesian DataFrame after cross join has columns:", cartesian.columns.tolist())
+
+    
     # 5) cross join with sites
+    site_stats = pd.read_sql(
+    "SELECT identifiant_du_site_de_comptage, mean, std, min, max FROM site_features",
+    engine
+)
     sites = processed[["identifiant_du_site_de_comptage"]].drop_duplicates()
+    sites = sites.merge(site_stats, on="identifiant_du_site_de_comptage", how="left")
     cartesian = sites.merge(future_feats, how="cross")
+
+    # 6) history dict + site stats
+    history_dict = build_history(processed, sites)
+
 
     # placeholders for lags (will be filled per-row in recursion)
     for c in ["lag_1", "lag_24", "rolling_mean_24"]:
         if c not in cartesian.columns:
             cartesian[c] = np.nan
 
-    # 6) history dict + site stats
-    history_dict = build_history(processed, sites)
-    site_stats = compute_site_stats(processed)
-
     # 7) model + feature list (exactly: processed columns minus target)
     model, model_uri = load_latest_model()
     feature_names = [c for c in processed.columns if c != "comptage_horaire"]
+    print(f"Using model from {model_uri} with features: {feature_names}")
+
+    missing = [c for c in feature_names if c not in cartesian.columns]
+    if missing:
+        raise RuntimeError(f"cartesian_df missing model features: {missing}")
 
     # 8) recursive prediction
     forecast_full = recursive_forecast(
