@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import folium
+import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from folium.plugins import HeatMap
 from streamlit_folium import folium_static
 from datetime import timedelta
@@ -12,16 +14,12 @@ import os
 
 @st.cache_data
 def forecast_window():
-    """Retourne (start, end) de la fenêtre de prévision disponible."""
     engine = get_engine()
     last_raw = pd.read_sql(
         "SELECT MAX(date_et_heure_de_comptage) AS dt FROM velib_raw;", engine
     ).loc[0, "dt"]
     last_raw = pd.to_datetime(last_raw).floor("H")
-    start = last_raw + timedelta(hours=1)
-    end   = last_raw + timedelta(hours=48)
-    return start, end
-
+    return last_raw + timedelta(hours=1), last_raw + timedelta(hours=48)
 
 @st.cache_data
 def load_forecast_range(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.DataFrame:
@@ -126,6 +124,114 @@ def load_mlflow_info():
         st.warning(f"MLflow indisponible ou erreur lors du chargement : {e}")
         return None, pd.DataFrame()
 
+@st.cache_data
+def load_historical_reference(site: str, target_dt: pd.Timestamp) -> pd.DataFrame:
+    """
+    Pour un site et une heure cible, charge depuis velib_raw :
+      - Moyenne des 4 dernières semaines (même jour de semaine, même heure)
+    """
+    engine = get_engine()
+    target_hour = target_dt.hour
+    target_dow  = target_dt.dayofweek  # 0=lundi…6=dimanche
+
+    rows = []
+
+    # Moyenne des 4 semaines (même jour de semaine, même heure)
+    avg_query = """
+        SELECT AVG(comptage_horaire) AS val
+        FROM velib_raw
+        WHERE nom_du_site_de_comptage = %(site)s
+          AND EXTRACT(ISODOW FROM date_et_heure_de_comptage) = %(dow)s
+          AND EXTRACT(HOUR   FROM date_et_heure_de_comptage) = %(hour)s
+          AND date_et_heure_de_comptage BETWEEN %(ws)s AND %(we)s;
+    """
+    avg_res = pd.read_sql(avg_query, engine, params={
+        "site": site,
+        "dow":  target_dow + 1,   # ISODOW : 1=lundi…7=dimanche
+        "hour": target_hour,
+        "ws":   target_dt - timedelta(weeks=4),
+        "we":   target_dt - timedelta(hours=1),
+    })
+    avg_val = avg_res.loc[0, "val"] if not avg_res.empty and avg_res.loc[0, "val"] is not None else None
+    if avg_val is not None:
+        rows.append({
+            "label": "Moy. 4 semaines (même jour/heure)",
+            "comptage_horaire": round(float(avg_val), 1),
+        })
+
+    return pd.DataFrame(rows)
+
+def _value_to_hex(value: float, vmin: float, vmax: float) -> str:
+    """Valeur → couleur hex sur gradient vert→jaune→rouge."""
+    cmap = plt.get_cmap("RdYlGn_r")
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    r, g, b, _ = cmap(norm(np.clip(value, vmin, vmax)))
+    return "#{:02x}{:02x}{:02x}".format(int(r * 255), int(g * 255), int(b * 255))
+
+def build_heatmap(df: pd.DataFrame, radius: int) -> folium.Map:
+    """
+    Carte Folium avec :
+    - HeatMap à gradient dynamique (intensité = min/max de l'heure sélectionnée)
+    - CircleMarkers transparents avec tooltip nom + comptage
+    - Légende
+    """
+    m = folium.Map(location=[48.8566, 2.3522], zoom_start=12, tiles="CartoDB positron")
+
+    df_clean = df[["latitude", "longitude", "comptage_horaire", "nom_du_site_de_comptage"]].dropna().copy()
+
+    vmin = float(df_clean["comptage_horaire"].min())
+    vmax = float(df_clean["comptage_horaire"].max())
+    if vmax == vmin:
+        vmax = vmin + 1
+
+    # Poids normalisés 0→1 pour la HeatMap
+    df_clean["weight"] = (df_clean["comptage_horaire"] - vmin) / (vmax - vmin)
+
+    HeatMap(
+        data=df_clean[["latitude", "longitude", "weight"]].values.tolist(),
+        radius=radius,
+        max_zoom=13,
+        min_opacity=0.3,
+        gradient={
+            "0.0": "#00cc44",   # vert  = peu de vélos
+            "0.5": "#ffcc00",   # jaune = moyen
+            "1.0": "#cc0000",   # rouge = beaucoup
+        },
+    ).add_to(m)
+
+    # Markers invisibles portant les tooltips
+    for _, row in df_clean.iterrows():
+        color = _value_to_hex(row["comptage_horaire"], vmin, vmax)
+        folium.CircleMarker(
+            location=[row["latitude"], row["longitude"]],
+            radius=6,
+            color=color,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.7,
+            weight=1,
+            tooltip=folium.Tooltip(
+                f"<b>{row['nom_du_site_de_comptage']}</b><br>"
+                f"Prévision : <b>{row['comptage_horaire']:.0f} vélos</b>",
+                sticky=False,
+            ),
+        ).add_to(m)
+
+    # Légende
+    legend_html = f"""
+    <div style="
+        position:fixed; bottom:30px; left:30px; z-index:1000;
+        background:white; padding:10px 14px; border-radius:8px;
+        box-shadow:0 2px 6px rgba(0,0,0,.3); font-size:13px; line-height:1.8;">
+      <b>Vélos prévus</b><br>
+      <span style="color:#00cc44;font-size:18px">●</span> Peu &nbsp;({vmin:.0f})<br>
+      <span style="color:#ffcc00;font-size:18px">●</span> Moyen<br>
+      <span style="color:#cc0000;font-size:18px">●</span> Beaucoup &nbsp;({vmax:.0f})
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+
+    return m
 
 # -------------------------------------------------------PAGE MODEL PREDICTIONS-------------------------------------------------------------------
 
@@ -211,14 +317,12 @@ def show_prediction():
 
     # ── Heatmap ─────────────────────────────────────────────────────────────────
     st.subheader(f"🗺️ Heatmap des prévisions — {dt.strftime('%d/%m/%Y %H:%M')}")
-    m = folium.Map(location=[48.8566, 2.3522], zoom_start=12, tiles="CartoDB positron")
-    heat_data = (
-        df_hour[["latitude", "longitude", "comptage_horaire"]]
-        .dropna()
-        .values.tolist()
+    st.caption(
+        "🟢 Peu de vélos → 🟡 Moyen → 🔴 Beaucoup &nbsp;|&nbsp; "
+        "Couleurs relatives au min/max de l'heure sélectionnée. "
+        "Survolez un point pour voir le nom de la station."
     )
-    HeatMap(data=heat_data, radius=radius, max_zoom=13).add_to(m)
-    folium_static(m)
+    folium_static(build_heatmap(df_hour, radius))
 
     st.divider()
 
@@ -298,13 +402,34 @@ def show_prediction():
             )
         )
 
-        # Valeur ponctuelle à l'heure sélectionnée
-        if dt in site_data.index:
-            val = site_data.loc[dt, "comptage_horaire"]
+        # ── Comparaison à l'heure sélectionnée ──────────────────────────────────────
+    st.subheader(f"📌 Comparaison à {dt.strftime('%A %d/%m %H:%M')}")
+    st.caption("Valeurs historiques issues de `velib_raw` — même jour de semaine, même heure.")
+
+    pred_val = float(site_data.loc[dt, "comptage_horaire"]) if dt in site_data.index else None
+    hist_df  = load_historical_reference(site_choice, dt)
+
+    n_total = 1 + len(hist_df)
+    metric_cols = st.columns(n_total)
+
+    with metric_cols[0]:
+        st.metric(
+            label="🔮 Prévision modèle",
+            value=f"{pred_val:.0f} vélos" if pred_val is not None else "N/A",
+        )
+
+    for i, row in hist_df.iterrows():
+        with metric_cols[i + 1]:
+            delta = f"{pred_val - row['comptage_horaire']:+.0f} vs prévu" if pred_val is not None else None
             st.metric(
-                label=f"Prévision à {dt.strftime('%H:%M')} le {dt.strftime('%d/%m/%Y')}",
-                value=f"{val:.0f} vélos",
+                label=f"📅 {row['label']}",
+                value=f"{row['comptage_horaire']:.0f} vélos",
+                delta=delta,
+                delta_color="inverse",  # rouge si modèle prédit plus que l'historique
             )
+
+    if hist_df.empty:
+        st.info("Aucune donnée historique disponible pour cette station / cette période.")
 
 
 
