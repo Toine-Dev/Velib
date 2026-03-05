@@ -233,10 +233,10 @@ def load_mlflow_info():
 
 
 @st.cache_data
-def load_historical_reference(site: str, target_dt: pd.Timestamp) -> pd.DataFrame:
+def load_historical_reference(site_id: int, target_dt: pd.Timestamp) -> pd.DataFrame:
     data = _api_get(
         "/client/historical-reference",
-        params={"site_name": site, "datetime": target_dt.isoformat()},
+        params={"site_id": site_id, "datetime": target_dt.isoformat()},
     )
     return pd.DataFrame(data)
 
@@ -258,7 +258,14 @@ def build_heatmap(df: pd.DataFrame, radius: int) -> folium.Map:
     """
     m = folium.Map(location=[48.8566, 2.3522], zoom_start=12, tiles="CartoDB positron")
 
-    df_clean = df[["latitude", "longitude", "comptage_horaire", "nom_du_site_de_comptage"]].dropna().copy()
+    df_clean = df[
+        ["latitude", "longitude", "comptage_horaire", "nom_du_site_de_comptage", "identifiant_du_site_de_comptage"]
+    ].dropna()
+
+    df_clean["site_label"] = df_clean.apply(
+        lambda r: f"{r['nom_du_site_de_comptage']} (ID {int(r['identifiant_du_site_de_comptage'])})",
+        axis=1,
+    )
 
     vmin = float(df_clean["comptage_horaire"].min())
     vmax = float(df_clean["comptage_horaire"].max())
@@ -416,17 +423,19 @@ def show_prediction():
         st.subheader("🔴 Top 15 — À éviter")
         st.caption("Stations avec le plus de vélos prévus")
         top_busy = (
-            df_hour[["nom_du_site_de_comptage", "comptage_horaire"]]
+            df_hour.assign(
+                Station=lambda d: d.apply(
+                    lambda r: f"{r['nom_du_site_de_comptage']} (ID {int(r['identifiant_du_site_de_comptage'])})",
+                    axis=1,
+                )
+            )[["Station", "comptage_horaire"]]
             .sort_values("comptage_horaire", ascending=False)
             .head(15)
             .reset_index(drop=True)
         )
         top_busy.index += 1
         st.dataframe(
-            top_busy.rename(columns={
-                "nom_du_site_de_comptage": "Station",
-                "comptage_horaire": "Vélos prévus",
-            }),
+            top_busy.rename(columns={"comptage_horaire": "Vélos prévus"}),
             use_container_width=True,
         )
 
@@ -434,17 +443,19 @@ def show_prediction():
         st.subheader("🟢 Top 15 — Tranquilles")
         st.caption("Stations avec le moins de vélos prévus")
         top_quiet = (
-            df_hour[["nom_du_site_de_comptage", "comptage_horaire"]]
+            df_hour.assign(
+                Station=lambda d: d.apply(
+                    lambda r: f"{r['nom_du_site_de_comptage']} (ID {int(r['identifiant_du_site_de_comptage'])})",
+                    axis=1,
+                )
+            )[["Station", "comptage_horaire"]]
             .sort_values("comptage_horaire", ascending=True)
             .head(15)
             .reset_index(drop=True)
         )
         top_quiet.index += 1
         st.dataframe(
-            top_quiet.rename(columns={
-                "nom_du_site_de_comptage": "Station",
-                "comptage_horaire": "Vélos prévus",
-            }),
+            top_quiet.rename(columns={"comptage_horaire": "Vélos prévus"}),
             use_container_width=True,
         )
 
@@ -453,28 +464,73 @@ def show_prediction():
     # ── Graphique d'évolution par station sur 48h ────────────────────────────────
     st.subheader("📈 Évolution horaire d'une station sur 48h")
 
+    site_choice = None
+    site_id_choice = None
+    site_data = pd.DataFrame()
+
     if df_range.empty:
         st.warning("Impossible de charger les données d'évolution sur 48h.")
     else:
-        sites = sorted(df_range["nom_du_site_de_comptage"].unique())
-
-        # Pré-sélectionner la station la plus chargée à l'heure choisie
-        default_site = (
-            df_hour.sort_values("comptage_horaire", ascending=False)
-            .iloc[0]["nom_du_site_de_comptage"]
-            if not df_hour.empty
-            else sites[0]
+        # Sécurise les données : une seule ligne par station + heure
+        df_range = (
+            df_range.sort_values(
+                ["identifiant_du_site_de_comptage", "date_et_heure_de_comptage"]
+            )
+            .drop_duplicates(
+                subset=["identifiant_du_site_de_comptage", "date_et_heure_de_comptage"],
+                keep="first",
+            )
+            .copy()
         )
-        default_idx = sites.index(default_site) if default_site in sites else 0
 
-        site_choice = st.selectbox(
+        # Libellé lisible pour l'UI
+        df_range["site_label"] = df_range.apply(
+            lambda r: f"{r['nom_du_site_de_comptage']} (ID {int(r['identifiant_du_site_de_comptage'])})",
+            axis=1,
+        )
+
+        # Mapping unique station_id -> label
+        site_options_df = (
+            df_range[
+                ["identifiant_du_site_de_comptage", "nom_du_site_de_comptage", "site_label"]
+            ]
+            .drop_duplicates(subset=["identifiant_du_site_de_comptage"])
+            .sort_values(["nom_du_site_de_comptage", "identifiant_du_site_de_comptage"])
+            .reset_index(drop=True)
+        )
+
+        site_labels = site_options_df["site_label"].tolist()
+
+        # Pré-sélection = station la plus chargée à l'heure choisie
+        default_site_id = (
+            int(
+                df_hour.sort_values("comptage_horaire", ascending=False)
+                .iloc[0]["identifiant_du_site_de_comptage"]
+            )
+            if not df_hour.empty
+            else int(site_options_df.iloc[0]["identifiant_du_site_de_comptage"])
+        )
+
+        default_idx_matches = site_options_df.index[
+            site_options_df["identifiant_du_site_de_comptage"] == default_site_id
+        ].tolist()
+        default_idx = default_idx_matches[0] if default_idx_matches else 0
+
+        selected_label = st.selectbox(
             "Choisissez un site de comptage :",
-            options=sites,
+            options=site_labels,
             index=default_idx,
         )
 
+        selected_row = site_options_df.loc[
+            site_options_df["site_label"] == selected_label
+        ].iloc[0]
+
+        site_id_choice = int(selected_row["identifiant_du_site_de_comptage"])
+        site_choice = selected_row["nom_du_site_de_comptage"]
+
         site_data = (
-            df_range[df_range["nom_du_site_de_comptage"] == site_choice]
+            df_range[df_range["identifiant_du_site_de_comptage"] == site_id_choice]
             .sort_values("date_et_heure_de_comptage")
             .set_index("date_et_heure_de_comptage")
         )
@@ -489,8 +545,19 @@ def show_prediction():
     st.subheader(f"📌 Comparaison à {dt.strftime('%A %d/%m %H:%M')}")
     st.caption("Valeurs historiques issues de `velib_raw` — même jour de semaine, même heure.")
 
-    pred_val = float(site_data.loc[dt, "comptage_horaire"]) if dt in site_data.index else None
-    hist_df  = load_historical_reference(site_choice, dt)
+    pred_val = None
+    if not site_data.empty and dt in site_data.index:
+        selected_val = site_data.loc[dt, "comptage_horaire"]
+        if isinstance(selected_val, pd.Series):
+            pred_val = float(selected_val.iloc[0])
+        else:
+            pred_val = float(selected_val)
+
+    hist_df = (
+        load_historical_reference(site_id_choice, dt)
+        if site_id_choice is not None
+        else pd.DataFrame()
+    )
 
     n_total = 1 + len(hist_df)
     metric_cols = st.columns(n_total)
@@ -503,12 +570,16 @@ def show_prediction():
 
     for i, row in hist_df.iterrows():
         with metric_cols[i + 1]:
-            delta = f"{pred_val - row['comptage_horaire']:+.0f} vs prévu" if pred_val is not None else None
+            delta = (
+                f"{pred_val - row['comptage_horaire']:+.0f} vs prévu"
+                if pred_val is not None
+                else None
+            )
             st.metric(
                 label=f"📅 {row['label']}",
                 value=f"{row['comptage_horaire']:.0f} vélos",
                 delta=delta,
-                delta_color="inverse",  # rouge si modèle prédit plus que l'historique
+                delta_color="inverse",
             )
 
     if hist_df.empty:

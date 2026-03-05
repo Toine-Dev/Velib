@@ -635,16 +635,18 @@ def forecast_range(start: str, end: str, user=Depends(get_current_user)):
 
 
 @app.get("/client/historical-reference", response_model=List[HistoricalRefRow], tags=["client"])
-def historical_reference(site_name: str, datetime: str, user=Depends(get_current_user)):
+def historical_reference(site_id: int, datetime: str, user=Depends(get_current_user)):
     """
-    For a given site name + target hour, returns:
+    For a given site ID + target hour, returns:
       - Avg of last 4 weeks same ISODOW + hour
-    Mirrors Streamlit load_historical_reference().
     """
     try:
         target_dt = pd.to_datetime(datetime, errors="raise").floor("h")
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid datetime. Use ISO or 'YYYY-MM-DD HH:00:00'.")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid datetime. Use ISO or 'YYYY-MM-DD HH:00:00'."
+        )
 
     target_hour = int(target_dt.hour)
     target_isodow = int(target_dt.dayofweek) + 1  # pandas: 0..6, ISODOW: 1..7
@@ -652,14 +654,14 @@ def historical_reference(site_name: str, datetime: str, user=Depends(get_current
     q = text("""
         SELECT AVG(comptage_horaire) AS val
         FROM velib_raw
-        WHERE nom_du_site_de_comptage = :site
+        WHERE identifiant_du_site_de_comptage = :site_id
           AND EXTRACT(ISODOW FROM date_et_heure_de_comptage) = :dow
           AND EXTRACT(HOUR   FROM date_et_heure_de_comptage) = :hour
           AND date_et_heure_de_comptage BETWEEN :ws AND :we;
     """)
 
     params = {
-        "site": site_name,
+        "site_id": site_id,
         "dow": target_isodow,
         "hour": target_hour,
         "ws": (target_dt - pd.Timedelta(weeks=4)).to_pydatetime(),
