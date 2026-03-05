@@ -7,7 +7,9 @@ from scipy.stats import pearsonr, ttest_ind, chi2_contingency
 from data.loader import load_processed_data
 from data.preprocessing import get_season_from_date  
 
-PLOT_DIR = "/images/plots"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PLOT_DIR = os.path.join(BASE_DIR, "..", "..", "images", "plots")
+PLOT_DIR = os.path.normpath(PLOT_DIR)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 # ------------------------------ CACHING ------------------------------

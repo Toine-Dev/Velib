@@ -9,11 +9,4 @@ if __name__ == "__main__":
     with engine.begin() as conn:
         conn.execute(text("DROP TABLE IF EXISTS velib_raw;")) # Use this to drop the table and start fresh with the CSV data.
     main()
-    # delete_duplicates(engine)
-    # with engine.begin() as conn:
-    #     result = conn.execute(text("""
-    #         SELECT COUNT(*) FROM velib_raw;
-    #     """))
-    #     count = result.fetchone()[0]
-    #     print(f"Total rows in velib_raw after deduplication: {count}")
     print("Data pipeline completed successfully.")

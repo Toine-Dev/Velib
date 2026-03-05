@@ -5,13 +5,9 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-
-
-
 PROCESSED_TABLE = "velib_weather_processed"
 RAW_TABLE = "velib_raw"
 FEATURES_TABLE = "site_features"
-
 
 def create_features_table(engine: Engine) -> None:
 
@@ -185,9 +181,6 @@ def run_site_by_site_etl(
             .drop(columns=[WEATHER_TIME_COL], errors="ignore")
         )
 
-        # site_stats = pd.read_sql("SELECT * FROM site_features", engine)
-        # print(f"The site_stats DataFrame has columns: {site_stats['identifiant_du_site_de_comptage'].dtype}")
-        # print(f"The df_merged DataFrame has columns: {df_merged['identifiant_du_site_de_comptage'].dtype}")
         df_merged = df_merged.merge(
             site_stats,
             on="identifiant_du_site_de_comptage",
@@ -197,7 +190,6 @@ def run_site_by_site_etl(
         df_encoded, _ = preprocess_merged_data(df_merged)
 
         # Write incrementally
-        # write_processed(engine, df_merged, if_exists="replace" if first_write else "append")
         write_processed(engine, df_encoded, if_exists="replace" if first_write else "append")
         first_write = False
 
@@ -217,15 +209,8 @@ def main() -> None:
     #     # ...
     # ]
 
-    # run_site_by_site_etl(engine, velib_columns=velib_columns, truncate_output_first=True)
     run_site_by_site_etl(engine, truncate_output_first=True) # Will drop the output table each time it is run to start fresh.
 
 
 if __name__ == "__main__":
     main()
-
-
-# processed_velib_data = preprocess_velib_data(raw_velib_df)
-# processed_weather_data = preprocess_weather_data(raw_weather_df)
-# df_merged = pd.merge(processed_velib_data, processed_weather_data, how="left", left_on="date_et_heure_de_comptage", right_on="time").drop(columns=["time"])
-# processed_df, feature_names = preprocess_merged_data(df_merged)

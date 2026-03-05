@@ -21,7 +21,6 @@ def predict_model(datetime_pred):
 
     locations = None
 
-    # start_datetime = pd.to_datetime(raw_df_velib['date_et_heure_de_comptage'].max())
     start_datetime, start_date = last_cached_datetime()
 
     pipeline = None
