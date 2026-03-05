@@ -7,36 +7,106 @@ import matplotlib.colors as mcolors
 from folium.plugins import HeatMap
 from streamlit_folium import folium_static
 from datetime import timedelta
-from data.loader import load_forecast_geo, get_engine
+# from data.loader import load_forecast_geo, get_engine
+import requests
 import os
+
+
+
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://api:8000")
+API_USER = os.environ.get("STREAMLIT_API_USER", os.environ.get("API_ADMIN_USER", "admin"))
+API_PASS = os.environ.get("STREAMLIT_API_PASS", os.environ.get("API_ADMIN_PASS", "admin"))
+
+
+@st.cache_resource
+def _get_api_token() -> str:
+    """
+    Fetch and cache a JWT token from the API.
+    Uses OAuth2PasswordRequestForm => needs x-www-form-urlencoded.
+    """
+    r = requests.post(
+        f"{API_BASE_URL}/auth/token",
+        data={"username": API_USER, "password": API_PASS},
+        timeout=15,
+    )
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+
+def _api_headers() -> dict:
+    return {"Authorization": f"Bearer {_get_api_token()}"}
+
+
+def _api_get(path: str, params: dict | None = None):
+    r = requests.get(f"{API_BASE_URL}{path}", headers=_api_headers(), params=params, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def _api_post(path: str, json_body: dict):
+    r = requests.post(f"{API_BASE_URL}{path}", headers=_api_headers(), json=json_body, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # -------------------------------------------------------CACHING -------------------------------------------------------------------
 
+# @st.cache_data
+# def forecast_window():
+#     engine = get_engine()
+#     last_raw = pd.read_sql(
+#         "SELECT MAX(date_et_heure_de_comptage) AS dt FROM velib_raw;", engine
+#     ).loc[0, "dt"]
+#     last_raw = pd.to_datetime(last_raw).floor("H")
+#     return last_raw + timedelta(hours=1), last_raw + timedelta(hours=48)
+
 @st.cache_data
 def forecast_window():
-    engine = get_engine()
-    last_raw = pd.read_sql(
-        "SELECT MAX(date_et_heure_de_comptage) AS dt FROM velib_raw;", engine
-    ).loc[0, "dt"]
-    last_raw = pd.to_datetime(last_raw).floor("H")
-    return last_raw + timedelta(hours=1), last_raw + timedelta(hours=48)
+    data = _api_get("/client/forecast-window")
+    start_dt = pd.to_datetime(data["start"])
+    end_dt = pd.to_datetime(data["end"])
+    return start_dt, end_dt
+
+# @st.cache_data
+# def load_forecast_range(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.DataFrame:
+#     """Charge toutes les prévisions entre start_dt et end_dt depuis velib_forecast_geo."""
+#     engine = get_engine()
+#     query = """
+#         SELECT
+#             date_et_heure_de_comptage,
+#             nom_du_site_de_comptage,
+#             latitude,
+#             longitude,
+#             comptage_horaire
+#         FROM velib_forecast_geo
+#         WHERE date_et_heure_de_comptage BETWEEN %(start)s AND %(end)s
+#         ORDER BY nom_du_site_de_comptage, date_et_heure_de_comptage;
+#     """
+#     df = pd.read_sql(query, engine, params={"start": start_dt, "end": end_dt})
+#     df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"])
+#     return df
 
 @st.cache_data
 def load_forecast_range(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.DataFrame:
-    """Charge toutes les prévisions entre start_dt et end_dt depuis velib_forecast_geo."""
-    engine = get_engine()
-    query = """
-        SELECT
-            date_et_heure_de_comptage,
-            nom_du_site_de_comptage,
-            latitude,
-            longitude,
-            comptage_horaire
-        FROM velib_forecast_geo
-        WHERE date_et_heure_de_comptage BETWEEN %(start)s AND %(end)s
-        ORDER BY nom_du_site_de_comptage, date_et_heure_de_comptage;
-    """
-    df = pd.read_sql(query, engine, params={"start": start_dt, "end": end_dt})
+    data = _api_get(
+        "/client/forecast-range",
+        params={"start": start_dt.isoformat(), "end": end_dt.isoformat()},
+    )
+    df = pd.DataFrame(data)
+    if df.empty:
+        return df
     df["date_et_heure_de_comptage"] = pd.to_datetime(df["date_et_heure_de_comptage"])
     return df
 
@@ -124,42 +194,53 @@ def load_mlflow_info():
         st.warning(f"MLflow indisponible ou erreur lors du chargement : {e}")
         return None, pd.DataFrame()
 
+# @st.cache_data
+# def load_historical_reference(site: str, target_dt: pd.Timestamp) -> pd.DataFrame:
+#     """
+#     Pour un site et une heure cible, charge depuis velib_raw :
+#       - Moyenne des 4 dernières semaines (même jour de semaine, même heure)
+#     """
+#     engine = get_engine()
+#     target_hour = target_dt.hour
+#     target_dow  = target_dt.dayofweek  # 0=lundi…6=dimanche
+
+#     rows = []
+
+#     # Moyenne des 4 semaines (même jour de semaine, même heure)
+#     avg_query = """
+#         SELECT AVG(comptage_horaire) AS val
+#         FROM velib_raw
+#         WHERE nom_du_site_de_comptage = %(site)s
+#           AND EXTRACT(ISODOW FROM date_et_heure_de_comptage) = %(dow)s
+#           AND EXTRACT(HOUR   FROM date_et_heure_de_comptage) = %(hour)s
+#           AND date_et_heure_de_comptage BETWEEN %(ws)s AND %(we)s;
+#     """
+#     avg_res = pd.read_sql(avg_query, engine, params={
+#         "site": site,
+#         "dow":  target_dow + 1,   # ISODOW : 1=lundi…7=dimanche
+#         "hour": target_hour,
+#         "ws":   target_dt - timedelta(weeks=4),
+#         "we":   target_dt - timedelta(hours=1),
+#     })
+#     avg_val = avg_res.loc[0, "val"] if not avg_res.empty and avg_res.loc[0, "val"] is not None else None
+#     if avg_val is not None:
+#         rows.append({
+#             "label": "Moy. 4 semaines (même jour/heure)",
+#             "comptage_horaire": round(float(avg_val), 1),
+#         })
+
+#     return pd.DataFrame(rows)
+
+
 @st.cache_data
 def load_historical_reference(site: str, target_dt: pd.Timestamp) -> pd.DataFrame:
-    """
-    Pour un site et une heure cible, charge depuis velib_raw :
-      - Moyenne des 4 dernières semaines (même jour de semaine, même heure)
-    """
-    engine = get_engine()
-    target_hour = target_dt.hour
-    target_dow  = target_dt.dayofweek  # 0=lundi…6=dimanche
+    data = _api_get(
+        "/client/historical-reference",
+        params={"site_name": site, "datetime": target_dt.isoformat()},
+    )
+    return pd.DataFrame(data)
 
-    rows = []
 
-    # Moyenne des 4 semaines (même jour de semaine, même heure)
-    avg_query = """
-        SELECT AVG(comptage_horaire) AS val
-        FROM velib_raw
-        WHERE nom_du_site_de_comptage = %(site)s
-          AND EXTRACT(ISODOW FROM date_et_heure_de_comptage) = %(dow)s
-          AND EXTRACT(HOUR   FROM date_et_heure_de_comptage) = %(hour)s
-          AND date_et_heure_de_comptage BETWEEN %(ws)s AND %(we)s;
-    """
-    avg_res = pd.read_sql(avg_query, engine, params={
-        "site": site,
-        "dow":  target_dow + 1,   # ISODOW : 1=lundi…7=dimanche
-        "hour": target_hour,
-        "ws":   target_dt - timedelta(weeks=4),
-        "we":   target_dt - timedelta(hours=1),
-    })
-    avg_val = avg_res.loc[0, "val"] if not avg_res.empty and avg_res.loc[0, "val"] is not None else None
-    if avg_val is not None:
-        rows.append({
-            "label": "Moy. 4 semaines (même jour/heure)",
-            "comptage_horaire": round(float(avg_val), 1),
-        })
-
-    return pd.DataFrame(rows)
 
 def _value_to_hex(value: float, vmin: float, vmax: float) -> str:
     """Valeur → couleur hex sur gradient vert→jaune→rouge."""
@@ -296,7 +377,9 @@ def show_prediction():
 
     # ── Bouton principal ────────────────────────────────────────────────────────
     if st.button("🔍 Prédire la heatmap", type="primary"):
-        df_hour = load_forecast_geo(dt)
+        # df_hour = load_forecast_geo(dt)
+        rows = _api_post("/client/predict", {"datetime": dt.strftime("%Y-%m-%d %H:%M:%S")})
+        df_hour = pd.DataFrame(rows)
         if df_hour.empty:
             st.error("Aucune prévision trouvée pour cette heure. (velib_forecast_geo vide ?)")
             st.stop()
@@ -434,83 +517,3 @@ def show_prediction():
 
 
 
-# def show_prediction():
-
-#     
-
-#     pipeline = None
-#     metrics = None
-
-#     # Vérifier si le modèle existe
-#     if os.path.exists("model.pkl"):
-#         pipeline = load_model()
-#         # model = pipeline.named_steps['model']
-#         if os.path.exists("metrics.json"):
-#             with open("metrics.json", "r") as f:
-#                 metrics = json.load(f)
-#     else:
-#         st.info("Aucun modèle trouvé. Entraînement en cours...")
-#         with st.spinner("Training model..."):
-#             train_model()
-#             pipeline = load_model()
-
-#     # Afficher les métriques
-#     if metrics:
-#         st.write("Validation Metrics:")
-#         col1, col2, col3 = st.columns(3)
-#         col1.metric("MAE", f"{metrics['MAE']:.4f}")
-#         col2.metric("RMSE", f"{metrics['RMSE']:.4f}")
-#         col3.metric("R²", f"{metrics['R2']:.4f}")
-
-# # # Feature Importance Plot
-#     st.subheader("Top Features Importantes")
-#     transformed_feature_names = pipeline.named_steps['preprocessor'].get_feature_names_out()
-#     feature_importances = pipeline.named_steps['model'].feature_importances_
-#     importances_df = pd.DataFrame({'Feature': transformed_feature_names , 'Importance': feature_importances}).sort_values(by='Importance', ascending=False).head(10)
-#     fig, ax = plt.subplots(figsize=(8,6))
-#     ax.barh(importances_df['Feature'], importances_df['Importance'], color='skyblue')
-#     ax.set_xlabel('Importance')
-#     ax.set_ylabel('Feature')
-#     ax.set_title('Top 10 features importantes')
-#     ax.invert_yaxis()
-#     st.pyplot(fig)
-
-# # --- Section prédiction interactive ---
-#     start_datetime, start_date = last_cached_datetime()
-#     st.header("Prédiction pour une date future")
-#     st.write(f"Veuillez choisir une date/heure STRICTEMENT après {start_datetime}.")
-#     col1, col2 = st.columns(2)
-
-#     pred_date = col1.date_input("Sélectionnez la date", min_value=start_date)
-#     pred_time = col2.time_input("Sélectionnez l'heure")
-#     # The tz_localize method does not convert the time, it just assigns the timezone.
-#     # pred_datetime = pd.Timestamp.combine(pred_date, pred_time).tz_localize(start_datetime.tz)
-#     pred_datetime = pd.Timestamp.combine(pred_date, pred_time)
-
-#     if pred_datetime <= start_datetime or pred_datetime > (start_datetime + timedelta(hours=48)):
-#         st.error(f"Veuillez choisir une combinaison date et heure STRICTEMENT après {start_datetime} mais pas plus de 48 heures après cette dernière.")
-#         st.stop()
-
-#     radius = st.slider("Rayon de la heatmap", min_value=10, max_value=50, value=30)
-
-#     if st.button("Prédire la heatmap"):
-#         pred_time = pred_time.replace(minute=0, second=0, microsecond=0)
-#         datetime_pred = pd.Timestamp.combine(pred_date, pred_time)
-#         locations = predict_model(datetime_pred)
-        
-#         # Heatmap
-#         m = folium.Map(location=[48.8566, 2.3522], zoom_start=12, tiles="CartoDB positron")
-#         HeatMap(data=locations[['latitude', 'longitude', 'comptage_horaire']].values.tolist(), radius=radius, max_zoom=13).add_to(m)
-#         st.subheader("Heatmap des prédictions")
-#         folium_static(m)
-
-#         # Stocker pour graphique
-#         st.session_state['locations'] = locations
-
-#     # Graphique après heatmap
-#     if 'locations' in st.session_state:
-#         st.subheader("Choisissez un site pour voir son évolution")
-#         site_choice = st.selectbox("Site :", st.session_state['locations']['nom_du_site_de_comptage'].unique())
-#         site_data = st.session_state['locations'][st.session_state['locations']['nom_du_site_de_comptage'] == site_choice]
-#         site_data_sorted = site_data.sort_values('date_et_heure_de_comptage')
-#         st.line_chart(site_data_sorted[['date_et_heure_de_comptage', 'comptage_horaire']].set_index('date_et_heure_de_comptage'))
