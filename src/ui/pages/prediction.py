@@ -96,45 +96,34 @@ def load_mlflow_info():
         if not metrics:
             metrics = None
 
-        # Feature importances : artifact feature_importances.csv ou .json
-        fi_df    = pd.DataFrame()
-        run_id   = best_run.info.run_id
+        # Charger le modèle pickle depuis MLflow et extraire les feature importances
+        run_id = best_run.info.run_id
         art_names = [a.path for a in client.list_artifacts(run_id)]
 
-        if "feature_importances.csv" in art_names:
-            local = mlflow.artifacts.download_artifacts(
-                run_id=run_id, artifact_path="feature_importances.csv"
+        fi_df = pd.DataFrame()
+
+        # Cherche le pickle du modèle (mlflow log le souvent sous "model/model.pkl" ou "model")
+        model_uri = f"runs:/{run_id}/model"
+        try:
+            import pickle
+            local_model_path = mlflow.artifacts.download_artifacts(
+                run_id=run_id, artifact_path="model/model.pkl"
             )
-            fi_df = pd.read_csv(local)
+            with open(local_model_path, "rb") as f:
+                pipeline = pickle.load(f)
 
-        elif "feature_importances.json" in art_names:
-            import json
-            local = mlflow.artifacts.download_artifacts(
-                run_id=run_id, artifact_path="feature_importances.json"
+            # Extraire feature names + importances depuis le pipeline
+            feature_names = pipeline.named_steps["preprocessor"].get_feature_names_out()
+            importances   = pipeline.named_steps["model"].feature_importances_
+
+            fi_df = (
+                pd.DataFrame({"feature": feature_names, "importance": importances})
+                .sort_values("importance", ascending=False)
+                .head(10)
+                .reset_index(drop=True)
             )
-            with open(local) as f:
-                fi_df = pd.DataFrame(json.load(f))
-
-        # Normalisation des noms de colonnes → "feature" / "importance"
-        if not fi_df.empty:
-            fi_df.columns = [c.lower() for c in fi_df.columns]
-            col_map = {}
-            for c in fi_df.columns:
-                if any(k in c for k in ("feature", "name")):
-                    col_map[c] = "feature"
-                elif any(k in c for k in ("import", "value", "score")):
-                    col_map[c] = "importance"
-            fi_df = fi_df.rename(columns=col_map)
-
-            if {"feature", "importance"}.issubset(fi_df.columns):
-                fi_df = (
-                    fi_df[["feature", "importance"]]
-                    .sort_values("importance", ascending=False)
-                    .head(10)
-                    .reset_index(drop=True)
-                )
-            else:
-                fi_df = pd.DataFrame()
+        except Exception as e_model:
+            st.warning(f"Impossible de charger le modèle pickle : {e_model}")
 
         return metrics, fi_df
 
