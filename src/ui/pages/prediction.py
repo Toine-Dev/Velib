@@ -107,7 +107,7 @@ def load_mlflow_info():
         try:
             import pickle
             local_model_path = mlflow.artifacts.download_artifacts(
-                run_id=run_id, artifact_path="model/model.pkl"
+            run_id=run_id, artifact_path="model.pkl"
             )
             with open(local_model_path, "rb") as f:
                 pipeline = pickle.load(f)
@@ -154,37 +154,16 @@ def build_heatmap(df: pd.DataFrame, radius: int, t_low: int, t_high: int) -> fol
         ["latitude", "longitude", "comptage_horaire", "nom_du_site_de_comptage", "identifiant_du_site_de_comptage"]
     ].dropna().copy()
 
-    cap = max(t_high * 2, float(df_clean["comptage_horaire"].max()))
-    df_clean["weight"] = df_clean["comptage_horaire"].clip(upper=cap) / cap
-
-    low_norm  = max(0.01, min(round(t_low  / cap, 3), 0.49))
-    high_norm = max(low_norm + 0.01, min(round(t_high / cap, 3), 0.99))
-
-    HeatMap(
-        data=df_clean[["latitude", "longitude", "weight"]].values.tolist(),
-        radius=radius,
-        max_zoom=13,
-        min_opacity=0.3,
-        gradient={
-            "0.0":                   "#00cc44",
-            str(low_norm):           "#00cc44",
-            str(low_norm  + 0.001):  "#ffcc00",
-            str(high_norm):          "#ffcc00",
-            str(high_norm + 0.001):  "#cc0000",
-            "1.0":                   "#cc0000",
-        },
-    ).add_to(m)
-
     for _, row in df_clean.iterrows():
         color = _threshold_color(row["comptage_horaire"], t_low, t_high)
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
-            radius=6,
+            radius=8,
             color=color,
             fill=True,
             fill_color=color,
-            fill_opacity=0.75,
-            weight=1,
+            fill_opacity=0.85,
+            weight=1.5,
             tooltip=folium.Tooltip(
                 f"<b>{row['nom_du_site_de_comptage']}</b>"
                 f"<br>ID : {int(row['identifiant_du_site_de_comptage'])}"
@@ -206,7 +185,6 @@ def build_heatmap(df: pd.DataFrame, radius: int, t_low: int, t_high: int) -> fol
     """
     m.get_root().html.add_child(folium.Element(legend_html))
     return m
-
 
 
 # def build_heatmap(df: pd.DataFrame, radius: int) -> folium.Map:
