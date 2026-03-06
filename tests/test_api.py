@@ -43,7 +43,7 @@ def auth_header(token: str) -> dict:
 # ===========================================================================
 class TestHealth:
     def test_status_ok(self):
-        resp = client.get("/health")
+        resp = client.get("/system/health")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
