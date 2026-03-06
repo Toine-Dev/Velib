@@ -109,14 +109,30 @@ services:
     command: python scripts/recursive_forecast.py
     restart: "no"
 
+  # streamlit_app:
+  #   build: .
+  #   depends_on:
+  #     - db
+  #   ports:
+  #     - "8501:8501"
+  #   environment:
+  #     DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+  #     PYTHONPATH: /app/src
+  #   command: streamlit run scripts/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+  #   volumes:
+  #     - .:/app
+
   streamlit_app:
     build: .
     depends_on:
-      - db
+      - api
     ports:
       - "8501:8501"
     environment:
       DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
+      API_BASE_URL: http://api:8000
+      STREAMLIT_API_USER: admin
+      STREAMLIT_API_PASS: admin
       PYTHONPATH: /app/src
     command: streamlit run scripts/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
     volumes:
