@@ -75,9 +75,14 @@ def load_mlflow_info():
         mlflow.set_tracking_uri(tracking_uri)
 
         client     = mlflow.tracking.MlflowClient()
-        experiment = client.get_experiment_by_name(experiment_name)
-        if experiment is None:
+        experiments = client.search_experiments(order_by=["last_update_time DESC"])
+        if not experiments:
             return None, pd.DataFrame()
+
+        experiment = next(
+            (e for e in experiments if e.name != "Default"),
+            experiments[0]
+)
 
         # Meilleur run trié par RMSE croissant
         runs = client.search_runs(
