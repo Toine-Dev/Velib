@@ -50,22 +50,19 @@ VELIB/
 │   │   └── preprocessing.py
 │   ├── db/                         <- Database utilities
 │   │   └── db.py
-│   └── models/                     <- Model training and inference
-│       ├── evaluation.py
-│       ├── features.py
-│       ├── model_pointer.py
-│       ├── model_utils.py
-│       ├── predict.py
-│       └── train.py
-│
-├── ui/
-│   └── pages/                      <- Streamlit pages
-│       ├── analysis.py
-│       ├── overview.py
-│       └── prediction.py
-│
-├── utils/
-│   └── utils.py
+│   ├── models/                     <- Model training and inference
+│   │   ├── features.py
+│   │   ├── model_pointer.py
+│   │   ├── model_utils.py
+│   │   ├── predict.py
+│   │   └── train.py
+│   ├──ui/
+│   │   ├── pages/                      <- Streamlit pages
+│   │   ├── analysis.py
+│   │   ├── overview.py
+│   │   └── prediction.py
+├── └──utils/
+│       └── utils.py
 │
 ├── tests/                          <- Unit tests
 │   ├── test_api.py
