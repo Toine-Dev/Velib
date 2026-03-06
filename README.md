@@ -1,158 +1,214 @@
 # 🚴 Prediction de l'affluence des vélos dans Paris
 
 ## 📑 Sommaire
-- [Description du projet](#1--description-du-projet)
-- [Architecture du projet](#2--architecture-du-projet)
-- [Installation](#3-️-installation)
-- [Création de l’environnement virtuel](#31-création-de-lenvironnement-virtuel)
-- [Installation des dépendances](#32-installation-des-dépendances)
-- [Téléchargement des données](#33-téléchargement-des-données)
-- [Usage](#4--usage)
-- [Lancer l’API FastAPI](#41-lancer-lapi-fastapi)
-- [Lancer Streamlit](#42-lancer-streamlit)
-- [Scripts utiles](#5--scripts-utiles)
-- [Tests unitaires](#6--tests-unitaires)
-- [Modèle et performances](#7--modèle-et-performances)
+- [About the project](#ℹ️-about-the-project)
+- [Architecture of the project](#🏗-architecture)
+- [Features](#️-features)
+- [Stack Tech](#-stack-tech)
+- [Setup](#️-setup)
+- [Have fun!](#-have-fun)
+- [About the authors](#-about-the-authors)
 
 ---
 
-## 1. 📌 Description du projet
+## 1. 📌 About the project
 
-Ce projet a pour objectif de prédire l’affluence des vélos en libre-service à Paris en utilisant :
-- Les données historiques de comptage vélo fournies par la Mairie de Paris
-- Les données météo
-- Le modèle de prédiction utilise LightGBM Regressor et un pipeline de features incluant :
-    - 📊 Statistiques par site : moyenne, max, min, écart-type
-    - 🔄 Valeurs historiques récursives : lags et rolling
-    - 🕒 Features temporelles et cycliques : jour, heure, saison
-    - 🌦 Conditions météorologiques : pluie, neige, vent, température apparente
-    - 🏖 Indicateurs vacances et heures de pointe
-- Une API FastAPI permet d’effectuer des prédictions en temps réel, et une interface Streamlit fournit des visualisations interactives (heatmap et tendances horaires).
+This project predicts bike-sharing traffic across Paris using data from the **Mairie de Paris Open Data** API and real-time weather data. A **LightGBM Regressor** model is trained on a rich feature set including recursive historical lags, site-level statistics, temporal cycles, weather conditions, and public holiday indicators.
+
+Everything runs inside **Docker** — there is no manual CSV download. The data pipeline bootstraps the database automatically on first run, and all services (database, data pipeline, model training, API, Streamlit, MLflow) are orchestrated via a single `docker compose up`.
+
+The **Streamlit** frontend communicates exclusively through the **FastAPI** backend, which queries **PostgreSQL** and returns predictions and analytics. The API is secured with **JWT authentication** and exposes separate interfaces for `admin` and `client` roles.
 
 ---
 
-## 2. 🏗 Architecture du projet
+## 2. 🏗 Architecture of the project
+
 ```bash
 VELIB/
-├─ api/                  # API FastAPI pour les prédictions
-│  └─ main.py
-├─ data/                 # Gestion des données
-│  ├─ ingestion.py       # Scripts d’ingestion
-│  ├─ loader.py          # Chargement des CSV et données traitées
-│  ├─ preprocessing.py   # Nettoyage et feature engineering
-│  └─ metadata.py        # Gestion de l’état des données
-├─ models/               # Modèles et fonctions associées
-│  ├─ features.py        # Feature engineering
-│  ├─ inference.py       # Fonctions de prédiction
-│  ├─ model_utils.py     # Chargement du modèle
-│  ├─ predict.py         # Pipeline de prédiction
-│  ├─ train.py           # Entraînement du modèle
-│  └─ model.pkl          # Modèle LightGBM entraîné
-├─ pages/                # Streamlit : interface utilisateur
-│  ├─ analysis.py
-│  ├─ overview.py
-│  └─ prediction.py
-├─ scripts/              # Scripts utilitaires
-│  ├─ run_eval.sh
-│  ├─ run_predict.sh
-│  ├─ run_train.sh
-│  ├─ run_update.sh
-│  └─ update_data.py     # Mise à jour des données vélo et météo
-├─ tests/                # Tests unitaires
-│  ├─ test_api.py
-│  ├─ test_model.py
-│  ├─ test_predict.py
-│  └─ test_recursive.py
-├─ utils/
-├─ requirements.txt
-├─ Makefile
-└─ README.md
+├── api/                            <- FastAPI application
+│   └── main.py                     <- Routes, JWT auth, schemas
+│
+├── docker/
+│   └── postgres/init/              <- SQL initialization scripts
+│       ├── 01_create_sites_and_forecast.sql
+│       ├── 01-create-mlflow-db.sql
+│       └── 02_api_schema.sql
+│
+├── scripts/                        <- Pipeline entry points (run inside Docker)
+│   ├── bootstrap_velib_csv.py      <- Initial data load from Paris Open Data API
+│   ├── preprocess_data.py          <- Feature engineering and cleaning
+│   ├── recursive_forecast.py       <- 48h recursive forecast generation
+│   ├── streamlit_app.py            <- Streamlit entry point
+│   ├── train_model.py              <- Model training + MLflow logging
+│   └── update_data.py              <- Incremental data update (bike + weather)
+│
+├── src/
+│   ├── data/                       <- Data ingestion and preprocessing
+│   │   ├── ingestion.py    
+│   │   ├── loader.py
+│   │   ├── metadata.py
+│   │   └── preprocessing.py
+│   ├── db/                         <- Database utilities
+│   │   └── db.py
+│   └── models/                     <- Model training and inference
+│       ├── evaluation.py
+│       ├── features.py
+│       ├── model_pointer.py
+│       ├── model_utils.py
+│       ├── predict.py
+│       └── train.py
+│
+├── ui/
+│   └── pages/                      <- Streamlit pages
+│       ├── analysis.py
+│       ├── overview.py
+│       └── prediction.py
+│
+├── utils/
+│   └── utils.py
+│
+├── tests/                          <- Unit tests
+│   ├── test_api.py
+│   ├── test_features.py
+│   ├── test_preprocessing.py
+│   ├── test_recursive_forecast.py
+│   └── test_train.py
+│
+├── docker-compose.yml
+├── Dockerfile
+├── pyproject.toml
+├── requirements.txt
+└── README.md
 ```
 
-### 🔄 Flux global
-- update_data.py : Mise à jour des CSV depuis la Mairie de Paris et données météo (weather API)
-- train.py : Entraînement du modèle LightGBM
-- predict.py / FastAPI : Prédictions pour une date/heure donnée
-- Streamlit : Visualisation des prédictions sur carte et graphiques horaires
+![Architecture](images/velib_architecture.png)
+
+### 🔄 Data flow
+1. `bootstrap_velib_csv` — loads historical bike count data from the Paris Open Data API into PostgreSQL on first run
+2. `update_api` — fetches the latest bike counts and weather data (historical + forecast) and updates the DB
+3. `preprocess_data` — cleans and engineers features into `velib_weather_processed`
+4. `train_model` — trains the LightGBM model and logs experiments to MLflow
+5. `recursive_forecast` — generates 48h ahead forecasts stored in the DB
+6. **FastAPI** — serves predictions and analytics from the DB, secured with JWT
+7. **Streamlit** — displays results by calling the FastAPI endpoints
 
 ---
 
-## 3. ⚙️ Installation
-### 3.1 Création de l’environnement virtuel
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-```
+## ⭐️ Features
 
-### 3.2 Installation des dépendances
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 3.3 Téléchargement des données
-Téléchargez le CSV de la Mairie de Paris pour les comptages vélos et placez-le dans le dossier VELIB/  
-Nommez le : comptage_velo_donnees_compteurs.csv  
-Pour mettre à jour automatiquement les données lancer le script: 
-```bash
-python scripts/update_data.py
-```
-Le fichier metadata/data_state.json permet de définir les dates de début et fin des données à charger.
+- 🐳 **Fully dockerized pipeline** — one `docker compose up` bootstraps data, trains the model, generates forecasts, and starts all services
+- 🔄 **Automated data ingestion** — bike counts fetched from the Paris Open Data API, weather from Open-Meteo (historical + forecast)
+- 🤖 **LightGBM model** — recursive 48h forecasting with lags, rolling stats, temporal features, weather, and holiday indicators
+- 🔐 **JWT authentication** — role-based API access (`admin` / `client`) with separate Swagger UIs (`/docs` and `/client-docs`)
+- 🗺 **Interactive heatmap** — visualize predicted bike traffic across all Paris sites in Streamlit
+- 📈 **Hourly trend charts** — historical + forecast per-site time series with correlation heatmaps
+- 📊 **MLflow experiment tracking** — model artifacts, metrics (MAE, RMSE, R²) and runs logged automatically
+- 🧪 **Full test suite** — unit tests for data loading, preprocessing, model inference, recursive forecasting, and API endpoints
 
 ---
 
-## 4. 🚀 Usage
-### 4.1 Lancer l’API FastAPI
-```bash
-uvicorn api.main:app --reload
-http://127.0.0.1:8000/docs
+## 🛠 Stack Tech
 
-Endpoint santé :
-GET http://127.0.0.1:8000/health
-
-Endpoint prédiction :
-POST http://127.0.0.1:8000/predict
-
-Exemple JSON pour la prédiction :
-{
-    "datetime": "2026-02-12 12:00:00"
-}
-```
-
-### 4.2 Lancer Streamlit
-```bash
-streamlit run app.py
-```
-- Page Overview : présentation du projet et des données brutes.
-- Page Analysis : tests statistiques et visualisations des données.
-- Page Model & Prédictions : prédire l'affluence à une heure donnée, avec heatmap de Paris et graphique de comptage horaire pour chaque site.
+| Tool | Role |
+|---|---|
+| **Python 3.10+** | Core language for data processing, training, and prediction |
+| **LightGBM** | Machine learning model for regression |
+| **FastAPI** | Secured REST API (JWT auth, admin/client roles) |
+| **Streamlit** | Interactive web interface for visualization |
+| **PostgreSQL 15** | Central database for raw data, processed features, and forecasts |
+| **MLflow** | Experiment tracking, model registry, and artifact storage |
+| **Docker & Docker Compose** | Full orchestration of all services and pipeline steps |
+| **Open-Meteo API** | Historical and forecast weather data |
+| **scikit-learn** | Feature pipelines and preprocessing utilities |
+| **pytest** | Unit testing framework |
 
 ---
 
-## 5. 🛠 Scripts utiles
+## ⚙️ Setup
+
+Make sure you have the following tools installed:
 ```bash
-run_update.sh	Mise à jour des CSV vélo et météo
-run_train.sh	Entraînement du modèle LightGBM
-run_predict.sh	Lancer une prédiction en ligne de commande
-run_eval.sh	Évaluation des métriques du modèle
-update_data.py	Script Python pour télécharger et nettoyer les données
+docker --version
+docker compose version
+git --version
 ```
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/Toine-Dev/Velib
+cd Velib
+```
+
+### 2. Start all services
+```bash
+docker compose up --build
+```
+
+This single command will automatically:
+- Start **PostgreSQL** and initialize the schema
+- Run **`bootstrap_velib_csv`** to load historical bike count data from the Paris Open Data API
+- Run **`update_api`** to fetch the latest bike and weather data
+- Run **`preprocess_data`** to clean and engineer features
+- Run **`train_model`** to train the LightGBM model and log results to MLflow
+- Run **`recursive_forecast`** to generate 48h forecasts and store them in the DB
+- Start **FastAPI**, **Streamlit**, and **MLflow** as persistent services
+
+> ⚠️ The pipeline steps run sequentially and may take a few minutes on first launch depending on the size of the dataset.
+
+### 3. Local access
+
+| Service | URL |
+|---|---|
+| Streamlit | http://localhost:8501 |
+| FastAPI (full docs) | http://localhost:8000/docs |
+| FastAPI (client docs) | http://localhost:8000/client-docs |
+| MLflow | http://localhost:5000 |
 
 ---
 
-## 6. ✅ Tests unitaires
-Pour exécuter tous les tests, dans le terminal :
+## 🎉 Have fun!
+
+### Explore the Streamlit app
+
+Open http://localhost:8501
+
+- **Overview** — project presentation and raw data exploration
+- **Data Analysis** — statistical tests and data visualizations
+- **Model & Predictions** — predict bike traffic at a given hour, with Paris heatmap and per-site hourly charts
+
+
+### Call the API directly
+
+The full Swagger UI is available at http://localhost:8000/docs, and a filtered client-only interface at http://localhost:8000/client-docs.
+
+- **1. Create an account**
+- **2. Get the available forecast window (next 48h)**
+- **3. Get predictions for a specific datetime**
+    Returns hourly bike counts for all Paris sites at the given hour.
+- **4. Get all forecasts over a time range**
+- **5. Get historical + forecast trends for a site**
+    Returns a PNG chart with historical data and forecast for a given site.
+- **6. Get the correlation heatmap**
+    Returns a PNG heatmap of feature correlations (weather, time, holidays vs. bike count).
+- **7. Get the historical reference for a site**
+    Returns the average bike count for the same day of week and hour over the last 4 weeks.
+
+### Explore MLflow
+
+Open http://localhost:5000 to browse experiment runs, compare metrics (MAE, RMSE, R²), and inspect model artifacts logged during training.
+
+### Run the tests
+
 ```bash
 pytest
 ```
-Les tests couvrent :
-- Chargement du modèle
-- Existence et cohérence des features
-- Fonctionnement du forecast récursif
-- Prédictions positives et robustes
-- API FastAPI (/predict et /health)
 
-## 7. 📈 Modèle et performances
-- Modèle : LightGBM Regressor
-- Features : Historique récursif, statistiques site, météo, temps, vacances, cycles horaire/jour
-- Metrics : MAE, RMSE, R² (stockées dans metrics.json)
+Tests cover model loading, feature consistency, recursive forecast behavior, data preprocessing, and FastAPI endpoints (`/client/predict`, `/system/health`, etc.).
+
+---
+
+## 👨‍💻 About the Authors
+
+- **Antoine Scarcella**
+- **Nathan Vitse**
+- **Nikhil Teja Bellamkonda**
