@@ -39,7 +39,6 @@ services:
       VELIB_API_URL: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/comptage-velo-donnees-compteurs/records
       HISTORICAL_WEATHER_API_URL: https://archive-api.open-meteo.com/v1/archive
       FORECAST_WEATHER_API_URL: https://api.open-meteo.com/v1/forecast
-      # OPENWEATHER_API_URL: ${OPENWEATHER_API_URL}
     command: python scripts/update_data.py
     restart: "no"
 
@@ -90,7 +89,6 @@ services:
       --default-artifact-root file:/mlflow/artifacts
       --serve-artifacts
       --artifacts-destination /mlflow/artifacts
-#      --default-artifact-root /mlflow/artifacts
 
   recursive_forecast:
     build: .
@@ -105,22 +103,9 @@ services:
       HISTORY_WINDOW_DAYS: "30"
       PYTHONUNBUFFERED: "1"
     volumes:
-      - mlflow_artifacts:/mlflow/artifacts   # ✅ ADD THIS
+      - mlflow_artifacts:/mlflow/artifacts
     command: python scripts/recursive_forecast.py
     restart: "no"
-
-  # streamlit_app:
-  #   build: .
-  #   depends_on:
-  #     - db
-  #   ports:
-  #     - "8501:8501"
-  #   environment:
-  #     DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
-  #     PYTHONPATH: /app/src
-  #   command: streamlit run scripts/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
-  #   volumes:
-  #     - .:/app
 
   streamlit_app:
     build: .
@@ -142,17 +127,21 @@ services:
     build: .
     depends_on:
       - db
+      - mlflow
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://ml_user:ml_password@db:5432/ml_db
       JWT_SECRET: "change-me-in-env"
       MLFLOW_UI_URL: "http://localhost:5000"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      MLFLOW_EXPERIMENT_NAME: "velib_forecast"
       API_ADMIN_USER: "admin"
       API_ADMIN_PASS: "admin"
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     volumes:
       - .:/app
+      - mlflow_artifacts:/mlflow/artifacts  
 
 volumes:
   postgres_data:

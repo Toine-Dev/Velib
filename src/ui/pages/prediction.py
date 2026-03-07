@@ -62,79 +62,25 @@ def load_forecast_range(start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.Data
 @st.cache_data
 def load_mlflow_info():
     """
-    Charge depuis MLflow :
-      - les métriques du meilleur run (MAE, RMSE, R²)
-      - les feature importances (artifact feature_importances.csv ou .json)
+    Charge via l'API :
+      - les métriques du meilleur run
+      - les feature importances extraites depuis MLflow
     Retourne (metrics_dict | None, fi_df | DataFrame vide).
     """
     try:
-        import mlflow
+        data = _api_get("/client/model-summary", params={"top_n": 10})
 
-        tracking_uri   = os.environ.get("MLFLOW_TRACKING_URI",   "http://mlflow:5000")
-        experiment_name = os.environ.get("MLFLOW_EXPERIMENT_NAME", "velib_forecast")
-        mlflow.set_tracking_uri(tracking_uri)
+        metrics = data.get("metrics")
+        fi_rows = data.get("feature_importances", [])
+        fi_df = pd.DataFrame(fi_rows)
 
-        client     = mlflow.tracking.MlflowClient()
-        experiments = client.search_experiments(order_by=["last_update_time DESC"])
-        if not experiments:
-            return None, pd.DataFrame()
-
-        experiment = next(
-            (e for e in experiments if e.name != "Default"),
-            experiments[0]
-)
-
-        # Meilleur run trié par RMSE croissant
-        runs = client.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            order_by=["metrics.RMSE ASC"],
-            max_results=1,
-        )
-        if not runs:
-            return None, pd.DataFrame()
-
-        best_run = runs[0]
-        m = best_run.data.metrics
-
-        metrics = {k: m.get(k) for k in ("MAE", "RMSE", "R2")}
-        metrics = {k: v for k, v in metrics.items() if v is not None}
-        if not metrics:
-            metrics = None
-
-        # Charger le modèle pickle depuis MLflow et extraire les feature importances
-        run_id = best_run.info.run_id
-        art_names = [a.path for a in client.list_artifacts(run_id)]
-
-        fi_df = pd.DataFrame()
-
-        # Cherche le pickle du modèle (mlflow log le souvent sous "model/model.pkl" ou "model")
-        model_uri = f"runs:/{run_id}/model"
-        try:
-            import pickle
-            local_model_path = mlflow.artifacts.download_artifacts(
-            run_id=run_id, artifact_path="model.pkl"
-            )
-            with open(local_model_path, "rb") as f:
-                pipeline = pickle.load(f)
-
-            # Extraire feature names + importances depuis le pipeline
-            feature_names = pipeline.named_steps["preprocessor"].get_feature_names_out()
-            importances   = pipeline.named_steps["model"].feature_importances_
-
-            fi_df = (
-                pd.DataFrame({"feature": feature_names, "importance": importances})
-                .sort_values("importance", ascending=False)
-                .head(10)
-                .reset_index(drop=True)
-            )
-        except Exception as e_model:
-            st.warning(f"Impossible de charger le modèle pickle : {e_model}")
-
-        return metrics, fi_df
+        return metrics, fi_df, data.get("importance_type"), data.get("artifact_path")
 
     except Exception as e:
-        st.warning(f"MLflow indisponible ou erreur lors du chargement : {e}")
-        return None, pd.DataFrame()
+        st.warning(f"API indisponible ou erreur lors du chargement MLflow : {e}")
+        return None, pd.DataFrame(), None, None
+
+
 
 @st.cache_data
 def load_historical_reference(site_id: int, target_dt: pd.Timestamp) -> pd.DataFrame:
@@ -192,78 +138,6 @@ def build_heatmap(df: pd.DataFrame, radius: int, t_low: int, t_high: int) -> fol
     return m
 
 
-# def build_heatmap(df: pd.DataFrame, radius: int) -> folium.Map:
-#     """
-#     Carte Folium avec :
-#     - HeatMap à gradient dynamique (intensité = min/max de l'heure sélectionnée)
-#     - CircleMarkers transparents avec tooltip nom + comptage
-#     - Légende
-#     """
-#     m = folium.Map(location=[48.8566, 2.3522], zoom_start=12, tiles="CartoDB positron")
-
-#     df_clean = df[
-#         ["latitude", "longitude", "comptage_horaire", "nom_du_site_de_comptage", "identifiant_du_site_de_comptage"]
-#     ].dropna()
-
-#     df_clean["site_label"] = df_clean.apply(
-#         lambda r: f"{r['nom_du_site_de_comptage']} (ID {int(r['identifiant_du_site_de_comptage'])})",
-#         axis=1,
-#     )
-
-#     vmin = float(df_clean["comptage_horaire"].min())
-#     vmax = float(df_clean["comptage_horaire"].max())
-#     if vmax == vmin:
-#         vmax = vmin + 1
-
-#     # Poids normalisés 0→1 pour la HeatMap
-#     df_clean["weight"] = (df_clean["comptage_horaire"] - vmin) / (vmax - vmin)
-
-#     HeatMap(
-#         data=df_clean[["latitude", "longitude", "weight"]].values.tolist(),
-#         radius=radius,
-#         max_zoom=13,
-#         min_opacity=0.3,
-#         gradient={
-#             "0.0": "#00cc44",   # vert  = peu de vélos
-#             "0.5": "#ffcc00",   # jaune = moyen
-#             "1.0": "#cc0000",   # rouge = beaucoup
-#         },
-#     ).add_to(m)
-
-#     # Markers invisibles portant les tooltips
-#     for _, row in df_clean.iterrows():
-#         color = _value_to_hex(row["comptage_horaire"], vmin, vmax)
-#         folium.CircleMarker(
-#             location=[row["latitude"], row["longitude"]],
-#             radius=6,
-#             color=color,
-#             fill=True,
-#             fill_color=color,
-#             fill_opacity=0.7,
-#             weight=1,
-#             tooltip=folium.Tooltip(
-#                 f"<b>{row['nom_du_site_de_comptage']}</b><br>"
-#                 f"Prévision : <b>{row['comptage_horaire']:.0f} vélos</b>",
-#                 sticky=False,
-#             ),
-#         ).add_to(m)
-
-#     # Légende
-#     legend_html = f"""
-#     <div style="
-#         position:fixed; bottom:30px; left:30px; z-index:1000;
-#         background:white; padding:10px 14px; border-radius:8px;
-#         box-shadow:0 2px 6px rgba(0,0,0,.3); font-size:13px; line-height:1.8;">
-#       <b>Vélos prévus</b><br>
-#       <span style="color:#00cc44;font-size:18px">●</span> Peu &nbsp;({vmin:.0f})<br>
-#       <span style="color:#ffcc00;font-size:18px">●</span> Moyen<br>
-#       <span style="color:#cc0000;font-size:18px">●</span> Beaucoup &nbsp;({vmax:.0f})
-#     </div>
-#     """
-#     m.get_root().html.add_child(folium.Element(legend_html))
-
-#     return m
-
 # -------------------------------------------------------PAGE MODEL PREDICTIONS-------------------------------------------------------------------
 
 def show_prediction():
@@ -273,7 +147,8 @@ def show_prediction():
 
     # ── Métriques & Feature importances (depuis MLflow) ─────────────────────────
     with st.expander("📊 Performances du modèle & Features importantes", expanded=True):
-        metrics, fi_df = load_mlflow_info()
+        # metrics, fi_df = load_mlflow_info()
+        metrics, fi_df, importance_type, artifact_path = load_mlflow_info()
 
         if metrics:
             st.subheader("Métriques de validation")
@@ -285,6 +160,10 @@ def show_prediction():
             st.info("Aucune métrique MLflow disponible.")
 
         if not fi_df.empty:
+            st.caption(
+                f"Source des importances : {importance_type or 'unknown'}"
+                + (f" — artifact: {artifact_path}" if artifact_path else "")
+            )
             st.subheader("Top 10 features importantes")
             fig, ax = plt.subplots(figsize=(8, 5))
             fi_sorted = fi_df.sort_values("importance", ascending=True)
@@ -495,7 +374,11 @@ def show_prediction():
 
         # ── Comparaison à l'heure sélectionnée ──────────────────────────────────────
     st.subheader(f"📌 Comparaison à {dt.strftime('%A %d/%m %H:%M')}")
-    st.caption("Valeurs historiques issues de `velib_raw` — même jour de semaine, même heure.")
+    st.caption("Valeur historique de comparaison issue d'un calcul à partir de la table `velib_raw`. \n")
+    st.write("La valeur historique de comparaison obtenue est une moyenne des valeurs historiques pour date_et_heure_de_comptage.")
+    st.write("De telles valeurs historiques étant parfois inexistantes, il y a élargissement de la fenêtre de calcul vers le passé pour essayer d'éviter une absence de comparaison.")
+    st.write("Dans le meilleur des cas, le calcul est effectué sur les quatre semaines précédentes même jour de la semaine même heure.")
+    st.write("Dans le pire des cas, ce calcul est effectué sur les huit semaines précédentes mais pour tous les jours de la semaine pour toutes les heures.")
 
     pred_val = None
     if not site_data.empty and dt in site_data.index:
@@ -535,7 +418,7 @@ def show_prediction():
             )
 
     if hist_df.empty:
-        st.info("Aucune donnée historique disponible pour cette station / cette période.")
+        st.info("Aucune référence historique trouvée pour cette station à cette heure, même après élargissement de la période de recherche.")
 
 
 

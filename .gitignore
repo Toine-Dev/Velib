@@ -7,3 +7,4 @@ metadata/
 __pycache__/
 *.pkl
 test.py
+JUSTETESTER.py

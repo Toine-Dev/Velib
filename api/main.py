@@ -18,7 +18,10 @@ from io import BytesIO
 from datetime import timezone
 from fastapi.openapi.utils import get_openapi
 from fastapi import Security
-
+import mlflow
+import pickle
+from pathlib import Path
+from typing import Any
 
 
 # ---------------- Config ----------------
@@ -122,10 +125,6 @@ ensure_default_admin()
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
-# def create_access_token(sub: str, role: str) -> str:
-#     exp = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_MINUTES)
-#     payload = {"sub": sub, "role": role, "exp": exp}
-#     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 def create_access_token(sub: str, role: str) -> str:
     exp = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_MINUTES)
@@ -140,17 +139,6 @@ def get_user(username: str):
         ).mappings().first()
     return row
 
-# def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
-#     token = credentials.credentials
-#     try:
-#         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
-#         username = payload.get("sub")
-#         role = payload.get("role")
-#         if not username or not role:
-#             raise HTTPException(status_code=401, detail="Invalid token")
-#         return {"username": username, "role": role}
-#     except JWTError:
-#         raise HTTPException(status_code=401, detail="Invalid token")
 
 def get_current_user(
     bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
@@ -221,68 +209,6 @@ def system_info():
     }
 
 # ---- Auth ----
-# def custom_openapi():
-#     if app.openapi_schema:
-#         return app.openapi_schema
-
-#     openapi_schema = get_openapi(
-#         title=app.title,
-#         version=app.version,
-#         description=app.description,
-#         routes=app.routes,
-#     )
-
-#     # Ensure both schemes exist
-#     openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})
-#     openapi_schema["components"]["securitySchemes"]["BearerAuth"] = {
-#         "type": "http",
-#         "scheme": "bearer",
-#         "bearerFormat": "JWT",
-#     }
-#     openapi_schema["components"]["securitySchemes"]["OAuth2Password"] = {
-#         "type": "oauth2",
-#         "flows": {
-#             "password": {
-#                 "tokenUrl": "/auth/token",
-#                 "scopes": {},
-#             }
-#         },
-#     }
-
-#     # Apply globally: user can choose either in the Authorize dialog
-#     openapi_schema["security"] = [
-#         {"BearerAuth": []},
-#         {"OAuth2Password": []},
-#     ]
-
-#     app.openapi_schema = openapi_schema
-#     return app.openapi_schema
-
-# app.openapi = custom_openapi
-
-# def custom_openapi():
-#     if app.openapi_schema:
-#         return app.openapi_schema
-
-#     schema = get_openapi(
-#         title=app.title,
-#         version=app.version,
-#         description=app.description,
-#         routes=app.routes,
-#     )
-
-#     # Allow either Bearer token OR OAuth2 password flow
-#     schema["security"] = [
-#         {"BearerAuth": []},
-#         {"OAuth2Password": []},
-#     ]
-
-#     app.openapi_schema = schema
-#     return app.openapi_schema
-
-# app.openapi = custom_openapi
-
-
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -561,6 +487,18 @@ def mlflow_link():
 
 
 
+class FeatureImportanceRow(BaseModel):
+    feature: str
+    importance: float
+
+class ModelSummaryResponse(BaseModel):
+    experiment_name: Optional[str] = None
+    run_id: Optional[str] = None
+    metrics: Optional[dict] = None
+    feature_importances: List[FeatureImportanceRow] = []
+    importance_type: Optional[str] = None
+    artifact_path: Optional[str] = None
+
 
 
 # --- add near other schemas in main.py ---
@@ -579,6 +517,252 @@ class ForecastRangeRow(BaseModel):
 class HistoricalRefRow(BaseModel):
     label: str
     comptage_horaire: float
+
+
+
+
+def _list_artifacts_recursive(client, run_id: str, path: str = "") -> list[str]:
+    items = client.list_artifacts(run_id, path)
+    paths = []
+    for item in items:
+        paths.append(item.path)
+        if item.is_dir:
+            paths.extend(_list_artifacts_recursive(client, run_id, item.path))
+    return paths
+
+
+def _find_model_artifact_path(client, run_id: str) -> Optional[str]:
+    all_paths = _list_artifacts_recursive(client, run_id)
+
+    preferred = [
+        "model.pkl",
+        "model/model.pkl",
+        "pipeline.pkl",
+        "model/pipeline.pkl",
+    ]
+
+    for p in preferred:
+        if p in all_paths:
+            return p
+
+    for p in all_paths:
+        if p.lower().endswith(".pkl"):
+            return p
+
+    return None
+
+
+def _unwrap_estimator(obj: Any) -> Any:
+    est = obj
+
+    if hasattr(est, "named_steps") and "model" in est.named_steps:
+        est = est.named_steps["model"]
+
+    for attr in ["best_estimator_", "regressor_", "final_estimator_", "_final_estimator"]:
+        if hasattr(est, attr):
+            try:
+                est = getattr(est, attr)
+            except Exception:
+                pass
+
+    return est
+
+
+def _extract_feature_names(model_obj: Any, estimator: Any, n_features: int) -> list[str]:
+    if hasattr(model_obj, "named_steps") and "preprocessor" in model_obj.named_steps:
+        preproc = model_obj.named_steps["preprocessor"]
+        if hasattr(preproc, "get_feature_names_out"):
+            try:
+                names = list(preproc.get_feature_names_out())
+                if len(names) == n_features:
+                    return [str(x) for x in names]
+            except Exception:
+                pass
+
+    for attr in ["feature_name_", "feature_names_in_"]:
+        if hasattr(estimator, attr):
+            try:
+                names = list(getattr(estimator, attr))
+                if len(names) == n_features:
+                    return [str(x) for x in names]
+            except Exception:
+                pass
+
+    return [f"feature_{i}" for i in range(n_features)]
+
+
+def _extract_importances(estimator: Any):
+    if hasattr(estimator, "feature_importances_"):
+        try:
+            vals = estimator.feature_importances_
+            if vals is not None:
+                return "feature_importances", np.ravel(vals)
+        except Exception:
+            pass
+
+    if hasattr(estimator, "booster_"):
+        try:
+            vals = estimator.booster_.feature_importance()
+            if vals is not None:
+                return "feature_importances", np.ravel(vals)
+        except Exception:
+            pass
+
+    if hasattr(estimator, "coef_"):
+        try:
+            vals = np.abs(np.ravel(estimator.coef_))
+            return "coef", vals
+        except Exception:
+            pass
+
+    return None, None
+
+@app.get("/admin/mlflow/run-artifacts", tags=["admin"], dependencies=[Depends(require_admin)])
+def list_run_artifacts(run_id: str):
+    try:
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+        mlflow.set_tracking_uri(tracking_uri)
+        client = mlflow.tracking.MlflowClient()
+
+        def walk(path: str = ""):
+            items = client.list_artifacts(run_id, path)
+            out = []
+            for item in items:
+                out.append({
+                    "path": item.path,
+                    "is_dir": item.is_dir,
+                    "file_size": getattr(item, "file_size", None),
+                })
+                if item.is_dir:
+                    out.extend(walk(item.path))
+            return out
+
+        return {"run_id": run_id, "artifacts": walk()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unable to list artifacts: {e}")
+
+@app.get("/admin/mlflow/run-info", tags=["admin"], dependencies=[Depends(require_admin)])
+def run_info(run_id: str):
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient()
+    run = client.get_run(run_id)
+    return {
+        "run_id": run.info.run_id,
+        "artifact_uri": run.info.artifact_uri,
+    }
+
+
+@app.get("/client/model-summary", response_model=ModelSummaryResponse, tags=["client"])
+def model_summary(top_n: int = 10, user=Depends(get_current_user)):
+    """
+    Read the best MLflow run and return:
+      - validation metrics
+      - top feature importances when available
+    """
+    try:
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+        experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "velib_forecast")
+
+        mlflow.set_tracking_uri(tracking_uri)
+        client = mlflow.tracking.MlflowClient()
+
+        experiments = client.search_experiments(order_by=["last_update_time DESC"])
+        if not experiments:
+            return {
+                "experiment_name": None,
+                "run_id": None,
+                "metrics": None,
+                "feature_importances": [],
+            }
+
+        experiment = next(
+            (e for e in experiments if e.name == experiment_name),
+            next((e for e in experiments if e.name != "Default"), experiments[0])
+        )
+
+        runs = client.search_runs(
+            experiment_ids=[experiment.experiment_id],
+            order_by=["metrics.RMSE ASC"],
+            max_results=1,
+        )
+        if not runs:
+            return {
+                "experiment_name": experiment.name,
+                "run_id": None,
+                "metrics": None,
+                "feature_importances": [],
+            }
+
+        best_run = runs[0]
+        run_id = best_run.info.run_id
+        m = best_run.data.metrics or {}
+
+        metrics = {k: m.get(k) for k in ("MAE", "RMSE", "R2")}
+        metrics = {k: float(v) for k, v in metrics.items() if v is not None}
+        if not metrics:
+            metrics = None
+
+        fi_rows = []
+
+        try:
+            model_obj = None
+
+            # Try MLflow sklearn flavor first
+            try:
+                model_obj = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
+            except Exception:
+                model_obj = None
+
+            # Fallback: find and load a pickle artifact
+            if model_obj is None:
+                artifact_path = _find_model_artifact_path(client, run_id)
+                if artifact_path is None:
+                    raise ValueError("No .pkl model artifact found in MLflow run")
+
+                local_model_path = mlflow.artifacts.download_artifacts(
+                    run_id=run_id,
+                    artifact_path=artifact_path,
+                )
+
+                with open(local_model_path, "rb") as f:
+                    model_obj = pickle.load(f)
+
+            estimator = _unwrap_estimator(model_obj)
+            importance_type, importances = _extract_importances(estimator)
+
+            if importances is not None:
+                feature_names = _extract_feature_names(model_obj, estimator, len(importances))
+
+                fi_df = (
+                    pd.DataFrame({"feature": feature_names, "importance": importances.astype(float)})
+                    .sort_values("importance", ascending=False)
+                    .head(top_n)
+                    .reset_index(drop=True)
+                )
+
+                fi_rows = [
+                    {
+                        "feature": str(row["feature"]),
+                        "importance": float(row["importance"]),
+                    }
+                    for _, row in fi_df.iterrows()
+                ]
+
+        except Exception as e:
+            # Optional temporary debug print
+            print(f"[model-summary] feature importance extraction failed for run {run_id}: {e}")
+            fi_rows = []
+
+        return {
+            "experiment_name": experiment.name,
+            "run_id": run_id,
+            "metrics": metrics,
+            "feature_importances": fi_rows,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unable to read MLflow model summary: {e}")
 
 
 # --- add near other client routes in main.py ---
@@ -634,12 +818,9 @@ def forecast_range(start: str, end: str, user=Depends(get_current_user)):
     return df.to_dict(orient="records")
 
 
+
 @app.get("/client/historical-reference", response_model=List[HistoricalRefRow], tags=["client"])
 def historical_reference(site_id: int, datetime: str, user=Depends(get_current_user)):
-    """
-    For a given site ID + target hour, returns:
-      - Avg of last 4 weeks same ISODOW + hour
-    """
     try:
         target_dt = pd.to_datetime(datetime, errors="raise").floor("h")
     except Exception:
@@ -649,35 +830,94 @@ def historical_reference(site_id: int, datetime: str, user=Depends(get_current_u
         )
 
     target_hour = int(target_dt.hour)
-    target_isodow = int(target_dt.dayofweek) + 1  # pandas: 0..6, ISODOW: 1..7
+    target_isodow = int(target_dt.dayofweek) + 1
 
-    q = text("""
-        SELECT AVG(comptage_horaire) AS val
-        FROM velib_raw
-        WHERE identifiant_du_site_de_comptage = :site_id
-          AND EXTRACT(ISODOW FROM date_et_heure_de_comptage) = :dow
-          AND EXTRACT(HOUR   FROM date_et_heure_de_comptage) = :hour
-          AND date_et_heure_de_comptage BETWEEN :ws AND :we;
-    """)
+    candidates = [
+        {
+            "label": "Moy. 4 semaines (même jour/heure)",
+            "sql": """
+                SELECT AVG(comptage_horaire) AS val, COUNT(*) AS n
+                FROM velib_raw
+                WHERE identifiant_du_site_de_comptage = :site_id
+                  AND EXTRACT(ISODOW FROM date_et_heure_de_comptage) = :dow
+                  AND EXTRACT(HOUR   FROM date_et_heure_de_comptage) = :hour
+                  AND date_et_heure_de_comptage BETWEEN :ws AND :we
+            """,
+            "params": {
+                "site_id": site_id,
+                "dow": target_isodow,
+                "hour": target_hour,
+                "ws": (target_dt - pd.Timedelta(weeks=4)).to_pydatetime(),
+                "we": (target_dt - pd.Timedelta(hours=1)).to_pydatetime(),
+            },
+        },
+        {
+            "label": "Moy. 8 semaines (même jour/heure)",
+            "sql": """
+                SELECT AVG(comptage_horaire) AS val, COUNT(*) AS n
+                FROM velib_raw
+                WHERE identifiant_du_site_de_comptage = :site_id
+                  AND EXTRACT(ISODOW FROM date_et_heure_de_comptage) = :dow
+                  AND EXTRACT(HOUR   FROM date_et_heure_de_comptage) = :hour
+                  AND date_et_heure_de_comptage BETWEEN :ws AND :we
+            """,
+            "params": {
+                "site_id": site_id,
+                "dow": target_isodow,
+                "hour": target_hour,
+                "ws": (target_dt - pd.Timedelta(weeks=8)).to_pydatetime(),
+                "we": (target_dt - pd.Timedelta(hours=1)).to_pydatetime(),
+            },
+        },
+        {
+            "label": "Moy. 8 semaines (même heure)",
+            "sql": """
+                SELECT AVG(comptage_horaire) AS val, COUNT(*) AS n
+                FROM velib_raw
+                WHERE identifiant_du_site_de_comptage = :site_id
+                  AND EXTRACT(HOUR FROM date_et_heure_de_comptage) = :hour
+                  AND date_et_heure_de_comptage BETWEEN :ws AND :we
+            """,
+            "params": {
+                "site_id": site_id,
+                "hour": target_hour,
+                "ws": (target_dt - pd.Timedelta(weeks=8)).to_pydatetime(),
+                "we": (target_dt - pd.Timedelta(hours=1)).to_pydatetime(),
+            },
+        },
+        {
+            "label": "Moy. 8 semaines (station)",
+            "sql": """
+                SELECT AVG(comptage_horaire) AS val, COUNT(*) AS n
+                FROM velib_raw
+                WHERE identifiant_du_site_de_comptage = :site_id
+                  AND date_et_heure_de_comptage BETWEEN :ws AND :we
+            """,
+            "params": {
+                "site_id": site_id,
+                "ws": (target_dt - pd.Timedelta(weeks=8)).to_pydatetime(),
+                "we": (target_dt - pd.Timedelta(hours=1)).to_pydatetime(),
+            },
+        },
+    ]
 
-    params = {
-        "site_id": site_id,
-        "dow": target_isodow,
-        "hour": target_hour,
-        "ws": (target_dt - pd.Timedelta(weeks=4)).to_pydatetime(),
-        "we": (target_dt - pd.Timedelta(hours=1)).to_pydatetime(),
-    }
+    for candidate in candidates:
+        df = pd.read_sql(text(candidate["sql"]), engine, params=candidate["params"])
 
-    df = pd.read_sql(q, engine, params=params)
-    val = df.loc[0, "val"] if not df.empty else None
+        if df.empty:
+            continue
 
-    if val is None:
-        return []
+        val = df.loc[0, "val"]
+        n = int(df.loc[0, "n"]) if pd.notna(df.loc[0, "n"]) else 0
 
-    return [{
-        "label": "Moy. 4 semaines (même jour/heure)",
-        "comptage_horaire": round(float(val), 1),
-    }]
+        if n > 0 and pd.notna(val):
+            return [{
+                "label": f"{candidate['label']} (n={n})",
+                "comptage_horaire": round(float(val), 1),
+            }]
+
+    return []
+
 
 # @app.post("/client/signup", tags=["client"])
 @app.post("/auth/signup", tags=["auth"])
