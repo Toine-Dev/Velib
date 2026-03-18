@@ -15,9 +15,9 @@
 
 This project predicts bike-sharing traffic across Paris using data from the **Mairie de Paris Open Data** API and real-time weather data. A **LightGBM Regressor** model is trained on a rich feature set including recursive historical lags, site-level statistics, temporal cycles, weather conditions, and public holiday indicators.
 
-Everything runs inside **Docker** — there is no manual CSV download. The data pipeline bootstraps the database automatically on first run, and all services (database, data pipeline, model training, API, Streamlit, MLflow) are orchestrated via a single `docker compose up`.
+Everything runs inside **Docker** — there is no manual CSV download. The data pipeline bootstraps the database automatically on first run by downloading a CSV file consisting of historical Velib data, and all services (database, data pipeline, model training, API, Streamlit, MLflow) are orchestrated via a single `docker compose up`.
 
-The **Streamlit** frontend communicates exclusively through the **FastAPI** backend, which queries **PostgreSQL** and returns predictions and analytics. The API is secured with **JWT authentication** and exposes separate interfaces for `admin` and `client` roles.
+The **Streamlit** frontend communicates exclusively through the **FastAPI** backend, which queries **PostgreSQL** and the **MLflow Tracking Server** and returns predictions and analytics. The API is secured with **JWT authentication** and exposes separate interfaces for `admin` and `client` roles.
 
 ---
 
@@ -26,6 +26,7 @@ The **Streamlit** frontend communicates exclusively through the **FastAPI** back
 ```bash
 VELIB/
 ├── api/                            <- FastAPI application
+│   ├── __init__.py
 │   └── main.py                     <- Routes, JWT auth, schemas
 │
 ├── docker/
@@ -44,25 +45,31 @@ VELIB/
 │
 ├── src/
 │   ├── data/                       <- Data ingestion and preprocessing
+│   │   ├── __init__.py
 │   │   ├── ingestion.py    
 │   │   ├── loader.py
 │   │   ├── metadata.py
 │   │   └── preprocessing.py
 │   ├── db/                         <- Database utilities
+│   │   ├── __init__.py
 │   │   └── db.py
 │   ├── models/                     <- Model training and inference
+│   │   ├── __init__.py
 │   │   ├── features.py
 │   │   ├── model_pointer.py
 │   │   ├── model_utils.py
 │   │   ├── predict.py
 │   │   └── train.py
 │   ├──ui/
-│   │   ├── pages/                      <- Streamlit pages
-│   │   ├── analysis.py
-│   │   ├── overview.py
-│   │   └── prediction.py
+│   │   └── pages/                      <- Streamlit pages
+│   │      ├── __init__.py
+│   │      ├── analysis.py
+│   │      ├── overview.py
+│   │      └── prediction.py
 ├── └──utils/
-│       └── utils.py
+│   │   ├── __init__.py
+│   │   ├── utils.py
+│   │   └── config.py
 │
 ├── tests/                          <- Unit tests
 │   ├── test_api.py
@@ -81,12 +88,12 @@ VELIB/
 ![Architecture](images/velib_architecture.png)
 
 ### 🔄 Data flow
-1. `bootstrap_velib_csv` — loads historical bike count data from the Paris Open Data API into PostgreSQL on first run
+1. `bootstrap_velib_csv` — loads historical bike count data from the Paris Open Data website by downloading a CSV file (quite heavy: around 1.5GB at the time of writing) into PostgreSQL on first run
 2. `update_api` — fetches the latest bike counts and weather data (historical + forecast) and updates the DB
 3. `preprocess_data` — cleans and engineers features into `velib_weather_processed`
 4. `train_model` — trains the LightGBM model and logs experiments to MLflow
 5. `recursive_forecast` — generates 48h ahead forecasts stored in the DB
-6. **FastAPI** — serves predictions and analytics from the DB, secured with JWT
+6. **FastAPI** — serves predictions and analytics from the DB and MLflow server, secured with JWT
 7. **Streamlit** — displays results by calling the FastAPI endpoints
 
 ---

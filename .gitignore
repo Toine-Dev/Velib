@@ -8,3 +8,5 @@ __pycache__/
 *.pkl
 test.py
 JUSTETESTER.py
+*.png
+images/
